@@ -177,6 +177,16 @@ def generate_stylesheet(theme_mode: str = "dark") -> str:
         border: 1px solid {t["card_border"]};
         border-radius: 12px;
     }}
+    QFrame#CardFrameDanger {{
+        background-color: {t["card"]};
+        border: 1.5px solid {t["danger"]};
+        border-radius: 12px;
+    }}
+    QFrame#CardFrameWarning {{
+        background-color: {t["card"]};
+        border: 1.5px solid {t["warning"]};
+        border-radius: 12px;
+    }}
 
     /* Buttons (M3 4-Level Hierarchy) */
     /* 1. Filled Button (Primary CTA) */
@@ -384,7 +394,21 @@ def generate_stylesheet(theme_mode: str = "dark") -> str:
         padding: 6px;
     }}
 
-    /* Scrollbars */
+    /* Scroll Areas & Scrollbars */
+    QScrollArea {{
+        background-color: transparent;
+        border: none;
+    }}
+    QScrollArea > QWidget {{
+        background-color: transparent;
+    }}
+    QScrollArea > QWidget > QWidget {{
+        background-color: transparent;
+    }}
+    QWidget#ScrollContentContainer {{
+        background-color: transparent;
+    }}
+
     QScrollBar:vertical {{
         background: transparent;
         width: 8px;

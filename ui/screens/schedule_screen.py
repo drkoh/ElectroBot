@@ -4,7 +4,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
     QComboBox, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QMenu, QApplication
+    QMenu, QApplication, QScrollArea, QSizePolicy
 )
 from PyQt6.QtCore import QTimer, Qt, pyqtSignal, QPoint
 from PyQt6.QtGui import QAction
@@ -29,8 +29,21 @@ class ScheduleScreen(QWidget):
         self.active_address = config.get("active_address", "Харків, вул. Дудинської")
         self.last_unified_status: UnifiedStatus = None
         
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        # Root layout holding the smooth scroll area
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        content_container = QWidget()
+        content_container.setObjectName("ScrollContentContainer")
+        main_layout = QVBoxLayout(content_container)
+        main_layout.setContentsMargins(20, 16, 20, 20)
         main_layout.setSpacing(14)
         
         # 1. Top Bar: Queue Selector & Date info & Router Status
@@ -93,6 +106,8 @@ class ScheduleScreen(QWidget):
         # 2. Hero Status Card (Live Power Status & Big Countdown)
         self.card_hero = QFrame()
         self.card_hero.setObjectName("CardFrame")
+        self.card_hero.setMinimumHeight(190)
+        self.card_hero.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.card_hero.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.card_hero.customContextMenuRequested.connect(self._show_hero_context_menu)
         
@@ -140,6 +155,7 @@ class ScheduleScreen(QWidget):
         # Row 4: Battery Charge Window Card (Smart Blackout Assistant)
         self.card_charge = QFrame()
         self.card_charge.setObjectName("CardFrame")
+        self.card_charge.setMinimumHeight(44)
         charge_layout = QHBoxLayout(self.card_charge)
         charge_layout.setContentsMargins(12, 8, 12, 8)
         
@@ -159,6 +175,7 @@ class ScheduleScreen(QWidget):
         # 3. Interactive Timeline Card
         card_timeline = QFrame()
         card_timeline.setObjectName("CardFrame")
+        card_timeline.setMinimumHeight(105)
         tl_layout = QVBoxLayout(card_timeline)
         tl_layout.setContentsMargins(16, 12, 16, 12)
         tl_layout.setSpacing(8)
@@ -187,6 +204,8 @@ class ScheduleScreen(QWidget):
         card_stats = QFrame()
         card_stats.setObjectName("CardFrame")
         card_stats.setFixedWidth(270)
+        card_stats.setMinimumHeight(140)
+        card_stats.setMaximumHeight(190)
         st_layout = QVBoxLayout(card_stats)
         st_layout.setContentsMargins(16, 14, 16, 14)
         st_layout.setSpacing(10)
@@ -219,11 +238,17 @@ class ScheduleScreen(QWidget):
         self.table_intervals.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table_intervals.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table_intervals.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table_intervals.setMinimumHeight(140)
+        self.table_intervals.setMaximumHeight(190)
         
         attach_table_context_menu(self.table_intervals, on_copied=lambda msg: self.notify_toast.emit("📋 Буфер обміну", msg, "SUCCESS"))
         bottom_grid.addWidget(self.table_intervals)
         
         main_layout.addLayout(bottom_grid)
+        main_layout.addStretch()
+        
+        scroll.setWidget(content_container)
+        root_layout.addWidget(scroll)
         
         # Timers
         self.second_timer = QTimer(self)
@@ -318,16 +343,21 @@ class ScheduleScreen(QWidget):
         self.lbl_hero_badge.setText(u_status.badge_text)
         if u_status.badge_theme == "danger":
             self.lbl_hero_badge.setObjectName("StatusOffBadge")
+            self.card_hero.setObjectName("CardFrameDanger")
             self.lbl_hero_countdown.setStyleSheet("font-size: 32px; font-weight: 800; font-family: monospace; color: #da3633;")
         elif u_status.badge_theme == "warning":
             self.lbl_hero_badge.setObjectName("StatusWarningBadge")
+            self.card_hero.setObjectName("CardFrameWarning")
             self.lbl_hero_countdown.setStyleSheet("font-size: 32px; font-weight: 800; font-family: monospace; color: #d29922;")
         else:
             self.lbl_hero_badge.setObjectName("StatusOnBadge")
+            self.card_hero.setObjectName("CardFrame")
             self.lbl_hero_countdown.setStyleSheet("font-size: 32px; font-weight: 800; font-family: monospace; color: #1f6feb;")
             
         self.lbl_hero_badge.style().unpolish(self.lbl_hero_badge)
         self.lbl_hero_badge.style().polish(self.lbl_hero_badge)
+        self.card_hero.style().unpolish(self.card_hero)
+        self.card_hero.style().polish(self.card_hero)
         
         if u_status.is_outage:
             self.lbl_hero_action.setText(f"Орієнтовне увімкнення ({u_status.target_time_str}):")
@@ -339,8 +369,8 @@ class ScheduleScreen(QWidget):
         self.lbl_hero_subtext.setText(u_status.subtext)
         self.lbl_charge_info.setText(u_status.charge_window_str)
         
-        # Emergency Banner
-        if u_status.is_emergency:
+        # Emergency Banner (Only for regional alerts GAV, as card_hero fully presents address-specific 1562 emergencies)
+        if u_status.is_emergency and u_status.state_type == "EMERGENCY_GAV":
             self.banner_emergency.setVisible(True)
             self.lbl_emerg_title.setText(u_status.headline)
             self.lbl_emerg_desc.setText(u_status.details + "\n" + u_status.subtext)
