@@ -1,0 +1,23 @@
+{
+  "theme": "light",
+  "active_address": "Харків, вул. Дудинської, 9",
+  "active_queue": "1.1",
+  "favorites": [
+    {
+      "id": "1793781246158",
+      "title": "Дом",
+      "address": "Харків, вул. Дудинської, 9",
+      "queue": "1.1"
+    }
+  ],
+  "notify_minutes_before": 15,
+  "notify_enabled": true,
+  "auto_refresh_minutes": 15,
+  "minimize_to_tray_on_close": true,
+  "start_minimized_to_tray": false,
+  "router_ping_enabled": true,
+  "router_ip": "",
+  "desktop_widget_enabled": false,
+  "window_width": 1050,
+  "window_height": 720
+}

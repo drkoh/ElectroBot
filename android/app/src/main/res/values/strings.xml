@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">ElectroBot</string>
+    <string name="channel_outage_name">Сповіщення про відключення</string>
+    <string name="channel_outage_desc">Попередження за 15 хвилин до відключення світла та аварій 1562</string>
+</resources>

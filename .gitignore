@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+electrobot_debug.log
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+venv/
+env/
+.venv/
+scratch/
+test_*.py
+test_*.ps1
+check_gh.ps1
+inspect_*.py
+inspect_*.ps1
+
+# Android & Gradle
+.gradle/
+**/build/
+android/app/build/
+android/.gradle/
+local.properties
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+capture_*.png
+
+# Keep compiled release distribution binaries in root for direct user access
+!ElectroBot.exe
+!ElectroBot-v1.1-mobile.apk
