@@ -77,7 +77,7 @@ def check_github_updates(timeout_sec: int = 6) -> UpdateInfo:
         url_apk = None
         for a in data.get("assets", []):
             name = a.get("name", "").lower()
-            if name.endswith(".exe"):
+            if name.endswith(".exe") or name.endswith(".zip"):
                 url_exe = a.get("browser_download_url")
             elif name.endswith(".apk"):
                 url_apk = a.get("browser_download_url")
