@@ -58,6 +58,7 @@ fun MainScreen(
     var outages1562 by remember { mutableStateOf<List<EmergencyOutage1562>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var isRouterOnline by remember { mutableStateOf<Boolean?>(null) }
+    var activeRouterIp by remember { mutableStateOf(prefs.getString("router_ip", "") ?: "") }
 
     // Dialog state for editing address
     var showEditAddressDialog by remember { mutableStateOf(false) }
@@ -135,8 +136,11 @@ fun MainScreen(
             if (s1562Res.isSuccess) {
                 outages1562 = s1562Res.getOrNull() ?: emptyList()
             }
-            // Router ping check
-            isRouterOnline = NetworkManager.pingGateway("192.168.1.1", 600)
+            // Router ping check with dynamic gateway detection
+            val savedRouterIp = prefs.getString("router_ip", "") ?: ""
+            val (online, resIp) = NetworkManager.pingGateway(context, savedRouterIp, 800)
+            isRouterOnline = online
+            activeRouterIp = resIp
             isLoading = false
         }
     }
@@ -233,6 +237,7 @@ fun MainScreen(
                     unifiedStatus = unifiedStatus,
                     schedule = schedule,
                     isRouterOnline = isRouterOnline,
+                    activeRouterIp = activeRouterIp,
                     isLoading = isLoading,
                     onRefresh = { refreshData() },
                     onEditAddress = { showEditAddressDialog = true }
@@ -294,7 +299,16 @@ fun MainScreen(
                     onQueueChange = { q ->
                         activeQueue = q
                         prefs.edit().putString("active_queue", q).apply()
-                    }
+                    },
+                    onEditAddress = { showEditAddressDialog = true },
+                    activeRouterIp = activeRouterIp,
+                    isRouterOnline = isRouterOnline,
+                    onSaveRouterIp = { ip ->
+                        activeRouterIp = ip
+                        prefs.edit().putString("router_ip", ip).apply()
+                        refreshData()
+                    },
+                    onCheckRouter = { refreshData() }
                 )
             }
 
@@ -329,6 +343,7 @@ fun ScheduleTab(
     unifiedStatus: UnifiedStatus,
     schedule: DailySchedule?,
     isRouterOnline: Boolean?,
+    activeRouterIp: String = "",
     isLoading: Boolean,
     onRefresh: () -> Unit,
     onEditAddress: () -> Unit
@@ -1323,7 +1338,12 @@ fun SettingsTab(
     onToggleTheme: () -> Unit,
     activeQueue: String,
     activeAddress: String,
-    onQueueChange: (String) -> Unit
+    onQueueChange: (String) -> Unit,
+    onEditAddress: () -> Unit,
+    activeRouterIp: String,
+    isRouterOnline: Boolean?,
+    onSaveRouterIp: (String) -> Unit,
+    onCheckRouter: () -> Unit
 ) {
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
@@ -1348,7 +1368,102 @@ fun SettingsTab(
             fontWeight = FontWeight.Bold
         )
 
-        // GitHub Updates Card
+        // 1. Address & Queue Configuration Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("📍 Моя адреса та черга відключень", color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(activeAddress, color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Підчерга за графіком: Черга $activeQueue", color = theme.textMuted, fontSize = 11.sp)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(theme.accentPrimary)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text("Черга $activeQueue", color = TextWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Text(
+                    text = "ℹ️ Примітка: черга 2.1 була початковим прикладом за замовчуванням. Встановіть вашу дійсну чергу (від 1.1 до 6.2) за розпорядженням АТ «Харківобленерго».",
+                    color = theme.textMuted,
+                    fontSize = 11.sp
+                )
+
+                Button(
+                    onClick = onEditAddress,
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.cardBg),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+                ) {
+                    Text("✏️ Змінити адресу та номер черги", color = theme.textPrimary, fontSize = 11.sp)
+                }
+            }
+        }
+
+        // 2. Router Monitoring Configuration Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("📶 Моніторинг роутера (наявність світла)", color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    if (isRouterOnline != null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isRouterOnline) theme.badgeSuccessBg else theme.badgeDangerBg)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = if (isRouterOnline) "🟢 Онлайн" else "🔴 Офлайн",
+                                color = if (isRouterOnline) theme.badgeSuccessText else theme.badgeDangerText,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = "Автоматично пінгує домашній Wi-Fi роутер ($activeRouterIp) для виявлення реального знеструмлення квартири.",
+                    color = theme.textMuted,
+                    fontSize = 11.sp
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onCheckRouter,
+                        shape = RoundedCornerShape(6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary)
+                    ) {
+                        Text("🔄 Перевірити роутер зараз", fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        // 3. GitHub Updates Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp),
@@ -1546,7 +1661,7 @@ fun SettingsTab(
                 Text("ℹ️ Про додаток ElectroBot Mobile v1.1", color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Text("• Офіційні графіки АТ «Харківобленерго»", color = theme.textMuted, fontSize = 11.sp)
                 Text("• Оперативні аварійні роботи АСДС «1562»", color = theme.textMuted, fontSize = 11.sp)
-                Text("• Перевірка роутера 192.168.1.1 онлайн/офлайн", color = theme.textMuted, fontSize = 11.sp)
+                Text("• Перевірка роутера (авто-визначення шлюзу Wi-Fi) онлайн/офлайн", color = theme.textMuted, fontSize = 11.sp)
                 Text("• Працює безперебійно навіть під час знеструмлень", color = theme.textMuted, fontSize = 11.sp)
             }
         }
@@ -1605,6 +1720,12 @@ fun EditAddressDialog(
                         }
                     }
                 }
+
+                Text(
+                    text = "💡 Підказка: номер черги (від 1.1 до 6.2) закріплений АТ «Харківобленерго» за вашим будинком. Черга 2.1 була початковим зразком за замовчуванням.",
+                    color = theme.textMuted,
+                    fontSize = 11.sp
+                )
             }
         },
         confirmButton = {

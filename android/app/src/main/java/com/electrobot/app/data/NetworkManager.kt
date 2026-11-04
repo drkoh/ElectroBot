@@ -188,21 +188,71 @@ object NetworkManager {
         }
     }
 
-    suspend fun pingGateway(ip: String = "192.168.1.1", timeoutMs: Int = 800): Boolean = withContext(Dispatchers.IO) {
+    fun detectWifiGateway(context: android.content.Context): String {
         try {
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress(ip, 80), timeoutMs)
-                true
+            val wm = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            val dhcp = wm?.dhcpInfo
+            if (dhcp != null && dhcp.gateway != 0) {
+                val g = dhcp.gateway
+                val detected = String.format(
+                    Locale.US,
+                    "%d.%d.%d.%d",
+                    g and 0xff,
+                    g shr 8 and 0xff,
+                    g shr 16 and 0xff,
+                    g shr 24 and 0xff
+                )
+                if (detected != "0.0.0.0") return detected
             }
-        } catch (e: Exception) {
-            try {
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress(ip, 53), timeoutMs)
-                    true
-                }
-            } catch (e2: Exception) {
-                false
+        } catch (e: Exception) { }
+        return ""
+    }
+
+    suspend fun pingGateway(
+        context: android.content.Context? = null,
+        targetIp: String = "",
+        timeoutMs: Int = 800
+    ): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val candidates = mutableListOf<String>()
+        if (targetIp.isNotBlank()) {
+            candidates.add(targetIp.trim())
+        }
+        if (context != null) {
+            val detected = detectWifiGateway(context)
+            if (detected.isNotBlank() && !candidates.contains(detected)) {
+                candidates.add(detected)
             }
         }
+        for (fb in listOf("192.168.31.1", "192.168.1.1", "192.168.0.1", "10.0.0.1", "192.168.88.1")) {
+            if (!candidates.contains(fb)) {
+                candidates.add(fb)
+            }
+        }
+
+        for (candidate in candidates) {
+            // Port 80 (HTTP)
+            try {
+                Socket().use { socket ->
+                    socket.connect(InetSocketAddress(candidate, 80), minOf(timeoutMs, 400))
+                    return@withContext Pair(true, candidate)
+                }
+            } catch (_: Exception) {}
+
+            // Port 53 (DNS)
+            try {
+                Socket().use { socket ->
+                    socket.connect(InetSocketAddress(candidate, 53), minOf(timeoutMs, 400))
+                    return@withContext Pair(true, candidate)
+                }
+            } catch (_: Exception) {}
+
+            // ICMP isReachable
+            try {
+                if (java.net.InetAddress.getByName(candidate).isReachable(minOf(timeoutMs, 400))) {
+                    return@withContext Pair(true, candidate)
+                }
+            } catch (_: Exception) {}
+        }
+        Pair(false, candidates.firstOrNull() ?: "192.168.1.1")
     }
 }
