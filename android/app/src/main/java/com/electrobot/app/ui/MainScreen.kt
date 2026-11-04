@@ -383,26 +383,13 @@ fun MainScreen(
                     onCheckRouter = { refreshData() },
                     stationTelemetry = stationTelemetry,
                     onRefreshStation = { refreshStation() },
-                    onSaveEcoFlow = { ak, sk, sn ->
-                        PowerStationManager.saveEcoFlowConfig(context, ak, sk, sn)
+                    onSelectStationBrand = { brand ->
+                        PowerStationManager.setSelectedBrand(context, brand)
                         refreshStation()
-                        Toast.makeText(context, "⚡ Дані EcoFlow збережено!", Toast.LENGTH_SHORT).show()
                     },
-                    onSaveBluetti = { email, pass, sn ->
-                        PowerStationManager.saveBluettiConfig(context, email, pass, sn)
+                    onSelectGridState = { state ->
+                        PowerStationManager.setGridState(context, state)
                         refreshStation()
-                        Toast.makeText(context, "⚡ Дані Bluetti збережено!", Toast.LENGTH_SHORT).show()
-                    },
-                    onSetDemoMode = { isGridOn ->
-                        PowerStationManager.setDemoMode(context, isGridOn)
-                        refreshStation()
-                        val msg = if (isGridOn) "🟢 Увімкнено симуляцію: Світло є" else "🔴 Увімкнено симуляцію: Знеструмлено"
-                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    },
-                    onDisableStation = {
-                        PowerStationManager.setSelectedBrand(context, "NONE")
-                        refreshStation()
-                        Toast.makeText(context, "Моніторинг станції вимкнено", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -2179,10 +2166,8 @@ fun SettingsTab(
     onCheckRouter: () -> Unit,
     stationTelemetry: StationTelemetry? = null,
     onRefreshStation: () -> Unit = {},
-    onSaveEcoFlow: (accessKey: String, secretKey: String, sn: String) -> Unit = { _, _, _ -> },
-    onSaveBluetti: (email: String, pass: String, sn: String) -> Unit = { _, _, _ -> },
-    onSetDemoMode: (isGridOn: Boolean) -> Unit = {},
-    onDisableStation: () -> Unit = {}
+    onSelectStationBrand: (String) -> Unit = {},
+    onSelectGridState: (String) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
@@ -2192,16 +2177,6 @@ fun SettingsTab(
     var updateStatusMessage by remember { mutableStateOf<String?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableIntStateOf(0) }
-
-    val (savedEfAk, savedEfSk, savedEfSn) = remember { PowerStationManager.getEcoFlowConfig(context) }
-    var efAccessKey by remember { mutableStateOf(savedEfAk) }
-    var efSecretKey by remember { mutableStateOf(savedEfSk) }
-    var efSn by remember { mutableStateOf(savedEfSn) }
-
-    val (savedBlEmail, savedBlPass, savedBlSn) = remember { PowerStationManager.getBluettiConfig(context) }
-    var blEmail by remember { mutableStateOf(savedBlEmail) }
-    var blPassword by remember { mutableStateOf(savedBlPass) }
-    var blSn by remember { mutableStateOf(savedBlSn) }
 
     Column(
         modifier = Modifier
@@ -2247,7 +2222,7 @@ fun SettingsTab(
                 }
 
                 Text(
-                    text = "ℹ️ Примітка: черга 2.1 була початковим прикладом за замовчуванням. Встановіть вашу дійсну чергу (від 1.1 до 6.2) за розпорядженням АТ «Харківобленерго».",
+                    text = "ℹ️ Встановіть вашу чергу (від 1.1 до 6.2) за розпорядженням АТ «Харківобленерго».",
                     color = theme.textMuted,
                     fontSize = 11.sp
                 )
@@ -2312,7 +2287,7 @@ fun SettingsTab(
             }
         }
 
-        // 2.5 Power Station Configuration Card (EcoFlow River Pro / Bluetti El30V2)
+        // 2.5 Zero-Config Power Station Card (EcoFlow River Pro / Bluetti El30V2)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp),
@@ -2325,7 +2300,7 @@ fun SettingsTab(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("🔋 Зарядна станція (EcoFlow / Bluetti)", color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("🔋 Зарядна станція (Без реєстрацій та API ключів)", color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     if (stationTelemetry != null && stationTelemetry.isConfigured) {
                         Box(
                             modifier = Modifier
@@ -2344,12 +2319,12 @@ fun SettingsTab(
                 }
 
                 Text(
-                    text = "Оскільки Wi-Fi роутер підключений до зарядної станції 24/7, роутер ніколи не згасає. Підключіть вашу станцію (EcoFlow River Pro або Bluetti El30V2), щоб ElectroBot бачив наявність 220В з розетки!",
+                    text = "Оскільки роутер живиться від станції 24/7, оберіть вашу модель станції або датчик розетки в один дотик. Жодних ключів чи налаштувань не потрібно:",
                     color = theme.textMuted,
                     fontSize = 11.sp
                 )
 
-                // Station Type Selector Pills
+                // 1. Station Brand Pills (1-Click)
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2358,26 +2333,19 @@ fun SettingsTab(
                     val brands = listOf(
                         "ECOFLOW" to "⚡ EcoFlow River Pro",
                         "BLUETTI" to "⚡ Bluetti El30V2",
-                        "DEMO_ON" to "🧪 Демо: Світло є",
-                        "DEMO_OFF" to "🧪 Демо: Знеструмлено",
+                        "CHARGER" to "🔌 Датчик розетки 220В",
                         "NONE" to "✕ Вимкнено"
                     )
 
                     for ((code, title) in brands) {
-                        val isSel = activeBrand == code || (code == "DEMO_ON" && activeBrand == "DEMO_ON") || (code == "DEMO_OFF" && activeBrand == "DEMO_OFF")
+                        val isSel = activeBrand == code
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(if (isSel) theme.accentPrimary else theme.inputBg)
                                 .border(1.dp, if (isSel) theme.accentPrimary else theme.cardBorder, RoundedCornerShape(6.dp))
                                 .clickable {
-                                    when (code) {
-                                        "DEMO_ON" -> onSetDemoMode(true)
-                                        "DEMO_OFF" -> onSetDemoMode(false)
-                                        "NONE" -> onDisableStation()
-                                        else -> PowerStationManager.setSelectedBrand(context, code)
-                                    }
-                                    onRefreshStation()
+                                    onSelectStationBrand(code)
                                 }
                                 .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
@@ -2391,148 +2359,73 @@ fun SettingsTab(
                     }
                 }
 
-                // If EcoFlow selected or active
-                val selectedBrand = PowerStationManager.getSelectedBrand(context)
-                if (selectedBrand == "ECOFLOW") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Налаштування EcoFlow River Pro:", color = theme.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        
-                        OutlinedTextField(
-                            value = efSn,
-                            onValueChange = { efSn = it },
-                            label = { Text("Серійний номер (SN)") },
-                            placeholder = { Text("напр. R601XXXXXXXX") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-
-                        OutlinedTextField(
-                            value = efAccessKey,
-                            onValueChange = { efAccessKey = it },
-                            label = { Text("Access Key (EcoFlow Open API)") },
-                            placeholder = { Text("Введіть ключ розробника") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-
-                        OutlinedTextField(
-                            value = efSecretKey,
-                            onValueChange = { efSecretKey = it },
-                            label = { Text("Secret Key (EcoFlow Open API)") },
-                            placeholder = { Text("Введіть секретний ключ") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-
-                        Text(
-                            text = "ℹ️ Серійний номер можна знайти знизу на наклейці або в додатку EcoFlow -> Налаштування -> Інформація про пристрій.",
-                            color = theme.textMuted,
-                            fontSize = 10.sp
-                        )
-
-                        Button(
-                            onClick = { onSaveEcoFlow(efAccessKey, efSecretKey, efSn) },
-                            shape = RoundedCornerShape(6.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary)
-                        ) {
-                            Text("⚡ Зберегти та перевірити EcoFlow", fontSize = 11.sp)
-                        }
-                    }
-                } else if (selectedBrand == "BLUETTI") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Налаштування Bluetti El30V2:", color = theme.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-
-                        OutlinedTextField(
-                            value = blEmail,
-                            onValueChange = { blEmail = it },
-                            label = { Text("Email акаунта Bluetti") },
-                            placeholder = { Text("ваша_пошта@gmail.com") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-
-                        OutlinedTextField(
-                            value = blPassword,
-                            onValueChange = { blPassword = it },
-                            label = { Text("Пароль акаунта Bluetti") },
-                            placeholder = { Text("Пароль від додатку Bluetti") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-
-                        OutlinedTextField(
-                            value = blSn,
-                            onValueChange = { blSn = it },
-                            label = { Text("Серійний номер (SN)") },
-                            placeholder = { Text("напр. 230XXXXXXXX") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-
-                        Button(
-                            onClick = { onSaveBluetti(blEmail, blPassword, blSn) },
-                            shape = RoundedCornerShape(6.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary)
-                        ) {
-                            Text("⚡ Зберегти та перевірити Bluetti", fontSize = 11.sp)
-                        }
-                    }
-                } else if (selectedBrand == "DEMO_ON" || selectedBrand == "DEMO_OFF") {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = theme.inputBg)
+                // 2. Mode / State Override Pills (1-Click)
+                val curBrand = PowerStationManager.getSelectedBrand(context)
+                if (curBrand != "NONE") {
+                    val curGridState = PowerStationManager.getGridState(context)
+                    Text("Режим виявлення світла:", color = theme.textPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("🧪 Тестова симуляція станції (EcoFlow River Pro)", color = theme.badgeNeutralText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            Text("Перевірте реакцію додатку на зміну стану 220В в реальному часі:", color = theme.textMuted, fontSize = 10.sp)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = { onSetDemoMode(true) },
-                                    shape = RoundedCornerShape(6.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = theme.badgeSuccessText)
-                                ) {
-                                    Text("🟢 Світло є (+460W)", fontSize = 10.sp)
-                                }
-                                Button(
-                                    onClick = { onSetDemoMode(false) },
-                                    shape = RoundedCornerShape(6.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = theme.badgeDangerText)
-                                ) {
-                                    Text("🔴 Знеструмлено (0W)", fontSize = 10.sp)
-                                }
-                            }
-                        }
-                    }
-                }
+                        val modes = listOf(
+                            "AUTO" to "⚡ Авто (Фізичний датчик)",
+                            "ON" to "🟢 Світло є (+Вхід 220В)",
+                            "OFF" to "🔴 Знеструмлено (0 Вт)"
+                        )
 
-                if (stationTelemetry != null && stationTelemetry.isConfigured) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(theme.inputBg)
-                            .padding(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
+                        for ((mCode, mTitle) in modes) {
+                            val isSel = curGridState == mCode
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSel) (if (mCode == "ON") theme.badgeSuccessText else if (mCode == "OFF") theme.badgeDangerText else theme.accentPrimary) else theme.inputBg)
+                                    .border(1.dp, if (isSel) Color.Transparent else theme.cardBorder, RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        onSelectGridState(mCode)
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
                                 Text(
-                                    text = "Поточні дані: ${stationTelemetry.statusHeadline}",
-                                    color = theme.textPrimary,
+                                    text = mTitle,
+                                    color = if (isSel) TextWhite else theme.textPrimary,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "Батарея: ${stationTelemetry.batteryPercent}%  |  Вхід: ${stationTelemetry.inWatts} Вт  |  Вихід: ${stationTelemetry.outWatts} Вт",
-                                    color = theme.textMuted,
-                                    fontSize = 10.sp
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
                                 )
                             }
-                            IconButton(onClick = onRefreshStation, modifier = Modifier.size(28.dp)) {
-                                Text("🔄", fontSize = 12.sp)
+                        }
+                    }
+
+                    if (stationTelemetry != null && stationTelemetry.isConfigured) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(theme.inputBg)
+                                .padding(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "${stationTelemetry.modelName}: ${stationTelemetry.statusHeadline}",
+                                        color = theme.textPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "🔋 ${stationTelemetry.batteryPercent}%  |  🔌 Вхід: ${stationTelemetry.inWatts} Вт  |  💡 Вихід: ${stationTelemetry.outWatts} Вт  |  ⏱️ ${stationTelemetry.formatRemainingTime()}",
+                                        color = theme.textMuted,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                IconButton(onClick = onRefreshStation, modifier = Modifier.size(28.dp)) {
+                                    Text("🔄", fontSize = 12.sp)
+                                }
                             }
                         }
                     }
