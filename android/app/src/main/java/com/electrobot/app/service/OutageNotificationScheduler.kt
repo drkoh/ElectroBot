@@ -48,10 +48,12 @@ object OutageNotificationScheduler {
     }
 
     fun sendTestNotification(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val activeQueue = prefs.getString("active_queue", "1.1") ?: "1.1"
         OutageAlarmReceiver.showNotification(
             context = context,
-            title = "⚡ Попередження: вимкнення за 15 хв",
-            message = "Черга 3.1: заплановано відключення з 15:00 до 18:30. Підготуйте зарядні станції та ноутбуки.",
+            title = "⚡ Тестове сповіщення (Черга $activeQueue)",
+            message = "Сповіщення налаштовано успішно. Додаток попереджатиме вас перед початком відключень для черги $activeQueue.",
             notifId = 9999
         )
     }
