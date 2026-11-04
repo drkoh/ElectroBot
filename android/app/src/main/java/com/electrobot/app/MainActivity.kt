@@ -41,7 +41,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Doze mode exemption request (borrowed from WaSender)
+        // Doze mode exemption request for reliable background monitoring
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
             if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {

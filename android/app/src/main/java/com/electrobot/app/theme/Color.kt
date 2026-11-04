@@ -5,7 +5,7 @@ import androidx.compose.ui.graphics.Color
 
 // =========================================================================
 // ElectroBot Mobile Design Tokens (Fluent 2 / Modern Slate)
-// Matches desktop styling & WaSender design tokens
+// Matches desktop Fluent 2 & Material Design 3 tokens
 // =========================================================================
 
 // --- Dark Slate Palette (Pro Slate Charcoal) ---
