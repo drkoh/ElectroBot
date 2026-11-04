@@ -29,8 +29,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.electrobot.app.data.KharkivData
 import com.electrobot.app.data.NetworkManager
-import com.electrobot.app.data.PowerStationManager
-import com.electrobot.app.data.StationTelemetry
 import com.electrobot.app.data.StatusResolver
 import com.electrobot.app.model.*
 import com.electrobot.app.service.GitHubUpdater
@@ -75,7 +73,6 @@ fun MainScreen(
     var isRouterOnline by remember { mutableStateOf<Boolean?>(null) }
     var activeRouterIp by remember { mutableStateOf(prefs.getString("router_ip", "") ?: "") }
     var isWifiActive by remember { mutableStateOf(true) }
-    var stationTelemetry by remember { mutableStateOf<StationTelemetry?>(null) }
 
     // Dialog state for adding/editing address
     var showAddressDialog by remember { mutableStateOf(false) }
@@ -167,15 +164,7 @@ fun MainScreen(
             } else {
                 isRouterOnline = null
             }
-            // Fetch power station telemetry (EcoFlow / Bluetti)
-            stationTelemetry = PowerStationManager.getTelemetry(context)
             isLoading = false
-        }
-    }
-
-    fun refreshStation() {
-        coroutineScope.launch {
-            stationTelemetry = PowerStationManager.getTelemetry(context)
         }
     }
 
@@ -273,11 +262,8 @@ fun MainScreen(
                     isRouterOnline = isRouterOnline,
                     activeRouterIp = activeRouterIp,
                     isWifiActive = isWifiActive,
-                    stationTelemetry = stationTelemetry,
                     isLoading = isLoading,
                     onRefresh = { refreshData() },
-                    onRefreshStation = { refreshStation() },
-                    onOpenSettings = { selectedTab = 4 },
                     onEditAddress = {
                         targetFavoriteForEdit = favoritesList.firstOrNull { it.address == activeAddress }
                             ?: FavoriteAddress("fav_active", "Мій дім", activeAddress, activeQueue)
@@ -380,17 +366,7 @@ fun MainScreen(
                         prefs.edit().putString("router_ip", ip).apply()
                         refreshData()
                     },
-                    onCheckRouter = { refreshData() },
-                    stationTelemetry = stationTelemetry,
-                    onRefreshStation = { refreshStation() },
-                    onSelectStationBrand = { brand ->
-                        PowerStationManager.setSelectedBrand(context, brand)
-                        refreshStation()
-                    },
-                    onSelectGridState = { state ->
-                        PowerStationManager.setGridState(context, state)
-                        refreshStation()
-                    }
+                    onCheckRouter = { refreshData() }
                 )
             }
 
@@ -444,11 +420,8 @@ fun ScheduleTab(
     isRouterOnline: Boolean?,
     activeRouterIp: String = "",
     isWifiActive: Boolean = true,
-    stationTelemetry: StationTelemetry? = null,
     isLoading: Boolean,
     onRefresh: () -> Unit,
-    onRefreshStation: () -> Unit = {},
-    onOpenSettings: () -> Unit = {},
     onEditAddress: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -479,25 +452,7 @@ fun ScheduleTab(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (stationTelemetry != null && stationTelemetry.isConfigured) {
-                    val isGrid = stationTelemetry.isGridOnline
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isGrid) theme.badgeSuccessBg else theme.badgeDangerBg)
-                            .border(1.dp, if (isGrid) theme.badgeSuccessText else theme.badgeDangerText, RoundedCornerShape(6.dp))
-                            .clickable { onOpenSettings() }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = if (isGrid) "🟢 220В Є | 🔋 ${stationTelemetry.batteryPercent}%" else "🔴 220В Немає | 🔋 ${stationTelemetry.batteryPercent}%",
-                            color = if (isGrid) theme.badgeSuccessText else theme.badgeDangerText,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                } else if (!isWifiActive) {
+                if (!isWifiActive) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
@@ -673,201 +628,6 @@ fun ScheduleTab(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                }
-            }
-        }
-
-        // Power Station Live Telemetry Card
-        if (stationTelemetry != null && stationTelemetry.isConfigured) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = theme.cardBg),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (stationTelemetry.isGridOnline) theme.badgeSuccessText else theme.cardBorder
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("🔋", fontSize = 18.sp)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = stationTelemetry.modelName,
-                                color = theme.textPrimary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (stationTelemetry.isGridOnline) theme.badgeSuccessBg else theme.badgeDangerBg)
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = if (stationTelemetry.isGridOnline) "🟢 220В У МЕРЕЖІ: СВІТЛО Є" else "🔴 220В НЕМАЄ (ВІД АКБ)",
-                                color = if (stationTelemetry.isGridOnline) theme.badgeSuccessText else theme.badgeDangerText,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    // Battery Progress Bar & %
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "Заряд акумулятора: ${stationTelemetry.batteryPercent}%",
-                                color = theme.textPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = if (stationTelemetry.isCharging) "⚡ Заряджається" else "⏳ Живить роутер",
-                                color = if (stationTelemetry.isCharging) theme.badgeSuccessText else theme.textMuted,
-                                fontSize = 11.sp
-                            )
-                        }
-
-                        LinearProgressIndicator(
-                            progress = { stationTelemetry.batteryPercent / 100f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp)
-                                .clip(RoundedCornerShape(4.dp)),
-                            color = when {
-                                stationTelemetry.batteryPercent > 50 -> theme.badgeSuccessText
-                                stationTelemetry.batteryPercent > 20 -> theme.accentWarning
-                                else -> theme.badgeDangerText
-                            },
-                            trackColor = theme.inputBg
-                        )
-                    }
-
-                    // 3 Metric Blocks
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Metric 1: In Watts
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(theme.inputBg)
-                                .padding(8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Вхід 220В", color = theme.textMuted, fontSize = 10.sp)
-                                Text("${stationTelemetry.inWatts} Вт", color = if (stationTelemetry.inWatts > 0) theme.badgeSuccessText else theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        // Metric 2: Out Watts
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(theme.inputBg)
-                                .padding(8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Навантаження", color = theme.textMuted, fontSize = 10.sp)
-                                Text("${stationTelemetry.outWatts} Вт", color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        // Metric 3: Autonomy
-                        Box(
-                            modifier = Modifier
-                                .weight(1.2f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(theme.inputBg)
-                                .padding(8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Автономність", color = theme.textMuted, fontSize = 10.sp)
-                                Text(stationTelemetry.formatRemainingTime(), color = theme.accentPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    Text(
-                        text = stationTelemetry.statusDetails,
-                        color = theme.textMuted,
-                        fontSize = 11.sp
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Button(
-                            onClick = onRefreshStation,
-                            shape = RoundedCornerShape(6.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = theme.inputBg),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text("🔄 Оновити показники", color = theme.textPrimary, fontSize = 11.sp)
-                        }
-
-                        TextButton(
-                            onClick = onOpenSettings,
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text("⚙️ Налаштувати станцію", color = theme.accentPrimary, fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-        } else {
-            // Teaser Card when no station configured
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable { onOpenSettings() },
-                shape = RoundedCornerShape(10.dp),
-                colors = CardDefaults.cardColors(containerColor = theme.cardBg),
-                border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("🔋", fontSize = 20.sp)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Підключіть EcoFlow River Pro / Bluetti El30V2",
-                            color = theme.textPrimary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Якщо роутер живиться від станції 24/7, підключіть станцію для точного визначення 220В.",
-                            color = theme.textMuted,
-                            fontSize = 11.sp
-                        )
-                    }
-                    Text("Підключити ›", color = theme.accentPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -2163,11 +1923,7 @@ fun SettingsTab(
     activeRouterIp: String,
     isRouterOnline: Boolean?,
     onSaveRouterIp: (String) -> Unit,
-    onCheckRouter: () -> Unit,
-    stationTelemetry: StationTelemetry? = null,
-    onRefreshStation: () -> Unit = {},
-    onSelectStationBrand: (String) -> Unit = {},
-    onSelectGridState: (String) -> Unit = {}
+    onCheckRouter: () -> Unit
 ) {
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
@@ -2282,152 +2038,6 @@ fun SettingsTab(
                         colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary)
                     ) {
                         Text("🔄 Перевірити роутер зараз", fontSize = 11.sp)
-                    }
-                }
-            }
-        }
-
-        // 2.5 Zero-Config Power Station Card (EcoFlow River Pro / Bluetti El30V2)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(containerColor = theme.cardBg),
-            border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("🔋 Зарядна станція (Без реєстрацій та API ключів)", color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    if (stationTelemetry != null && stationTelemetry.isConfigured) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (stationTelemetry.isGridOnline) theme.badgeSuccessBg else theme.badgeDangerBg)
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = if (stationTelemetry.isGridOnline) "🟢 220В Є" else "🔴 Знеструмлено",
-                                color = if (stationTelemetry.isGridOnline) theme.badgeSuccessText else theme.badgeDangerText,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                Text(
-                    text = "Оскільки роутер живиться від станції 24/7, оберіть вашу модель станції або датчик розетки в один дотик. Жодних ключів чи налаштувань не потрібно:",
-                    color = theme.textMuted,
-                    fontSize = 11.sp
-                )
-
-                // 1. Station Brand Pills (1-Click)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val activeBrand = PowerStationManager.getSelectedBrand(context)
-                    val brands = listOf(
-                        "ECOFLOW" to "⚡ EcoFlow River Pro",
-                        "BLUETTI" to "⚡ Bluetti El30V2",
-                        "CHARGER" to "🔌 Датчик розетки 220В",
-                        "NONE" to "✕ Вимкнено"
-                    )
-
-                    for ((code, title) in brands) {
-                        val isSel = activeBrand == code
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (isSel) theme.accentPrimary else theme.inputBg)
-                                .border(1.dp, if (isSel) theme.accentPrimary else theme.cardBorder, RoundedCornerShape(6.dp))
-                                .clickable {
-                                    onSelectStationBrand(code)
-                                }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = title,
-                                color = if (isSel) TextWhite else theme.textPrimary,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-
-                // 2. Mode / State Override Pills (1-Click)
-                val curBrand = PowerStationManager.getSelectedBrand(context)
-                if (curBrand != "NONE") {
-                    val curGridState = PowerStationManager.getGridState(context)
-                    Text("Режим виявлення світла:", color = theme.textPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val modes = listOf(
-                            "AUTO" to "⚡ Авто (Фізичний датчик)",
-                            "ON" to "🟢 Світло є (+Вхід 220В)",
-                            "OFF" to "🔴 Знеструмлено (0 Вт)"
-                        )
-
-                        for ((mCode, mTitle) in modes) {
-                            val isSel = curGridState == mCode
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSel) (if (mCode == "ON") theme.badgeSuccessText else if (mCode == "OFF") theme.badgeDangerText else theme.accentPrimary) else theme.inputBg)
-                                    .border(1.dp, if (isSel) Color.Transparent else theme.cardBorder, RoundedCornerShape(6.dp))
-                                    .clickable {
-                                        onSelectGridState(mCode)
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = mTitle,
-                                    color = if (isSel) TextWhite else theme.textPrimary,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-
-                    if (stationTelemetry != null && stationTelemetry.isConfigured) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(theme.inputBg)
-                                .padding(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "${stationTelemetry.modelName}: ${stationTelemetry.statusHeadline}",
-                                        color = theme.textPrimary,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = "🔋 ${stationTelemetry.batteryPercent}%  |  🔌 Вхід: ${stationTelemetry.inWatts} Вт  |  💡 Вихід: ${stationTelemetry.outWatts} Вт  |  ⏱️ ${stationTelemetry.formatRemainingTime()}",
-                                        color = theme.textMuted,
-                                        fontSize = 10.sp
-                                    )
-                                }
-                                IconButton(onClick = onRefreshStation, modifier = Modifier.size(28.dp)) {
-                                    Text("🔄", fontSize = 12.sp)
-                                }
-                            }
-                        }
                     }
                 }
             }

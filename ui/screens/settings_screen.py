@@ -12,7 +12,6 @@ from core.config import config
 from core.pdf_indexer import build_database_from_pdf
 from core.github_updater import check_github_updates, CURRENT_VERSION
 from core.async_workers import run_async
-from core.power_station import PowerStationManager, StationTelemetry
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtCore import QUrl
 
@@ -149,72 +148,6 @@ class SettingsScreen(QWidget):
         
         main_layout.addWidget(card_mon)
         
-        # 1.5 Power Station Card (EcoFlow River Pro / Bluetti El30V2)
-        card_station = QFrame()
-        card_station.setObjectName("CardFrame")
-        st_layout = QVBoxLayout(card_station)
-        st_layout.setContentsMargins(16, 16, 16, 16)
-        st_layout.setSpacing(10)
-
-        lbl_st_title = QLabel("🔋 Зарядні станції (Без введення ключів чи паролів)")
-        lbl_st_title.setStyleSheet("font-weight: 700; font-size: 13px; color: #58a6ff;")
-        st_layout.addWidget(lbl_st_title)
-
-        lbl_st_desc = QLabel(
-            "Оскільки роутер підключений до станції 24/7, оберіть вашу модель або датчик у 1 клік — "
-            "жодних реєстрацій, API ключів чи складних паролів:"
-        )
-        lbl_st_desc.setWordWrap(True)
-        lbl_st_desc.setStyleSheet("color: #9ba3b4; font-size: 11px;")
-        st_layout.addWidget(lbl_st_desc)
-
-        h_st_controls = QHBoxLayout()
-        
-        lbl_b_sel = QLabel("Станція:")
-        lbl_b_sel.setStyleSheet("color: #9ba3b4;")
-        self.combo_st_brand = QComboBox()
-        self.combo_st_brand.addItem("⚡ EcoFlow River Pro", "ECOFLOW")
-        self.combo_st_brand.addItem("⚡ Bluetti El30V2", "BLUETTI")
-        self.combo_st_brand.addItem("🔌 Датчик розетки 220В", "CHARGER")
-        self.combo_st_brand.addItem("✕ Вимкнено", "NONE")
-        
-        cur_brand = PowerStationManager.get_selected_brand()
-        b_idx = self.combo_st_brand.findData(cur_brand)
-        if b_idx >= 0:
-            self.combo_st_brand.setCurrentIndex(b_idx)
-        self.combo_st_brand.currentIndexChanged.connect(self._on_station_changed)
-        
-        lbl_m_sel = QLabel("Стан мережі 220В:")
-        lbl_m_sel.setStyleSheet("color: #9ba3b4; margin-left: 12px;")
-        self.combo_st_mode = QComboBox()
-        self.combo_st_mode.addItem("⚡ Авто (Фізичний датчик)", "AUTO")
-        self.combo_st_mode.addItem("🟢 Світло є (+Вхід 220В)", "ON")
-        self.combo_st_mode.addItem("🔴 Знеструмлено (0 Вт)", "OFF")
-        
-        cur_mode = PowerStationManager.get_grid_state()
-        m_idx = self.combo_st_mode.findData(cur_mode)
-        if m_idx >= 0:
-            self.combo_st_mode.setCurrentIndex(m_idx)
-        self.combo_st_mode.currentIndexChanged.connect(self._on_station_changed)
-        
-        btn_refresh_st = QPushButton("🔄 Оновити")
-        btn_refresh_st.setObjectName("SecondaryButton")
-        btn_refresh_st.clicked.connect(self._refresh_station_status)
-
-        h_st_controls.addWidget(lbl_b_sel)
-        h_st_controls.addWidget(self.combo_st_brand)
-        h_st_controls.addWidget(lbl_m_sel)
-        h_st_controls.addWidget(self.combo_st_mode)
-        h_st_controls.addWidget(btn_refresh_st)
-        h_st_controls.addStretch()
-        st_layout.addLayout(h_st_controls)
-
-        self.lbl_st_status = QLabel("Завантаження стану станції...")
-        self.lbl_st_status.setStyleSheet("color: #e6edf3; font-size: 11px; background: #1f222b; border: 1px solid #383d4a; border-radius: 6px; padding: 8px;")
-        st_layout.addWidget(self.lbl_st_status)
-
-        main_layout.addWidget(card_station)
-        
         # 2. GitHub Update Card
         card_update = QFrame()
         card_update.setObjectName("CardFrame")
@@ -294,31 +227,6 @@ class SettingsScreen(QWidget):
         main_layout.addWidget(card_favs)
         
         self.refresh_favorites_table()
-        self._on_station_changed()
-        self._refresh_station_status()
-
-    def _on_station_changed(self):
-        brand = self.combo_st_brand.currentData()
-        mode = self.combo_st_mode.currentData()
-        PowerStationManager.set_selected_brand(brand)
-        PowerStationManager.set_grid_state(mode)
-        self._refresh_station_status()
-        self.settings_saved.emit()
-
-    def _refresh_station_status(self):
-        tel = PowerStationManager.get_telemetry()
-        if not tel.is_configured:
-            self.lbl_st_status.setText("Моніторинг станції вимкнено.")
-            return
-            
-        icon = "🟢" if tel.is_grid_online else "🔴"
-        mode_str = "Мережа 220В активна (йде зарядка/байпас)" if tel.is_grid_online else "Знеструмлено (робота від станції)"
-        rem = tel.format_remaining_time()
-        self.lbl_st_status.setText(
-            f"{icon} {tel.model_name} | {mode_str}\n"
-            f"🔋 Заряд: {tel.battery_percent}% | ⚡ Вхід 220В: {tel.in_watts} Вт | 💡 Вихід: {tel.out_watts} Вт | ⏱️ Автономність: {rem}\n"
-            f"ℹ️ {tel.status_details}"
-        )
 
     def _save_settings(self):
         config.set("notify_enabled", self.chk_notify.isChecked())
