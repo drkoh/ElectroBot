@@ -12,6 +12,7 @@ from core.config import config
 from core.pdf_indexer import build_database_from_pdf
 from core.github_updater import check_github_updates, CURRENT_VERSION
 from core.async_workers import run_async
+from core.power_station import PowerStationManager, StationTelemetry
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtCore import QUrl
 
@@ -148,6 +149,104 @@ class SettingsScreen(QWidget):
         
         main_layout.addWidget(card_mon)
         
+        # 1.5 Power Station Card (EcoFlow River Pro / Bluetti El30V2)
+        card_station = QFrame()
+        card_station.setObjectName("CardFrame")
+        st_layout = QVBoxLayout(card_station)
+        st_layout.setContentsMargins(16, 16, 16, 16)
+        st_layout.setSpacing(10)
+
+        lbl_st_title = QLabel("🔋 Зарядні станції (EcoFlow River Pro / Bluetti El30V2)")
+        lbl_st_title.setStyleSheet("font-weight: 700; font-size: 13px; color: #58a6ff;")
+        st_layout.addWidget(lbl_st_title)
+
+        lbl_st_desc = QLabel(
+            "Оскільки Wi-Fi роутер підключений до зарядної станції 24/7, роутер ніколи не згасає. "
+            "Підключіть станцію або увімкніть демо-симуляцію, щоб ElectroBot визначав наявність 220В з розетки!"
+        )
+        lbl_st_desc.setWordWrap(True)
+        lbl_st_desc.setStyleSheet("color: #9ba3b4; font-size: 11px;")
+        st_layout.addWidget(lbl_st_desc)
+
+        h_st_brand = QHBoxLayout()
+        lbl_brand_sel = QLabel("Обраний режим:")
+        lbl_brand_sel.setStyleSheet("color: #9ba3b4;")
+        self.combo_st_brand = QComboBox()
+        self.combo_st_brand.addItem("⚡ EcoFlow River Pro", "ECOFLOW")
+        self.combo_st_brand.addItem("⚡ Bluetti El30V2", "BLUETTI")
+        self.combo_st_brand.addItem("🧪 Демо: Світло є (+460W)", "DEMO_ON")
+        self.combo_st_brand.addItem("🧪 Демо: Знеструмлено (0W)", "DEMO_OFF")
+        self.combo_st_brand.addItem("✕ Вимкнено", "NONE")
+        
+        cur_brand = PowerStationManager.get_selected_brand()
+        b_idx = self.combo_st_brand.findData(cur_brand)
+        if b_idx >= 0:
+            self.combo_st_brand.setCurrentIndex(b_idx)
+        self.combo_st_brand.currentIndexChanged.connect(self._on_station_brand_changed)
+        
+        h_st_brand.addWidget(lbl_brand_sel)
+        h_st_brand.addWidget(self.combo_st_brand)
+        h_st_brand.addStretch()
+        st_layout.addLayout(h_st_brand)
+
+        ef_cfg = PowerStationManager.get_ecoflow_config()
+        self.frame_ef = QFrame()
+        ef_form = QFormLayout(self.frame_ef)
+        ef_form.setContentsMargins(0, 4, 0, 4)
+        ef_form.setSpacing(6)
+        
+        self.input_ef_sn = QLineEdit(ef_cfg.get("device_sn", ""))
+        self.input_ef_sn.setPlaceholderText("напр. R601XXXXXXXX (на шильдику або в додатку)")
+        self.input_ef_ak = QLineEdit(ef_cfg.get("access_key", ""))
+        self.input_ef_ak.setPlaceholderText("Опціонально для Cloud Open API")
+        self.input_ef_sk = QLineEdit(ef_cfg.get("secret_key", ""))
+        self.input_ef_sk.setPlaceholderText("Опціонально для Cloud Open API")
+        self.input_ef_sk.setEchoMode(QLineEdit.EchoMode.Password)
+        
+        ef_form.addRow("EcoFlow SN:", self.input_ef_sn)
+        ef_form.addRow("Access Key:", self.input_ef_ak)
+        ef_form.addRow("Secret Key:", self.input_ef_sk)
+        st_layout.addWidget(self.frame_ef)
+
+        bl_cfg = PowerStationManager.get_bluetti_config()
+        self.frame_bl = QFrame()
+        bl_form = QFormLayout(self.frame_bl)
+        bl_form.setContentsMargins(0, 4, 0, 4)
+        bl_form.setSpacing(6)
+        
+        self.input_bl_email = QLineEdit(bl_cfg.get("email", ""))
+        self.input_bl_email.setPlaceholderText("Email акаунта Bluetti")
+        self.input_bl_pass = QLineEdit(bl_cfg.get("password", ""))
+        self.input_bl_pass.setPlaceholderText("Пароль додатку Bluetti")
+        self.input_bl_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self.input_bl_sn = QLineEdit(bl_cfg.get("device_sn", ""))
+        self.input_bl_sn.setPlaceholderText("Серійний номер станції")
+        
+        bl_form.addRow("Bluetti Email:", self.input_bl_email)
+        bl_form.addRow("Bluetti Пароль:", self.input_bl_pass)
+        bl_form.addRow("Bluetti SN:", self.input_bl_sn)
+        st_layout.addWidget(self.frame_bl)
+
+        h_st_btns = QHBoxLayout()
+        btn_save_st = QPushButton("💾 Зберегти дані станції")
+        btn_save_st.setObjectName("PrimaryButton")
+        btn_save_st.clicked.connect(self._save_station_settings)
+        
+        btn_check_st = QPushButton("🔄 Перевірити телеметрію")
+        btn_check_st.setObjectName("SecondaryButton")
+        btn_check_st.clicked.connect(self._refresh_station_status)
+        
+        h_st_btns.addWidget(btn_save_st)
+        h_st_btns.addWidget(btn_check_st)
+        h_st_btns.addStretch()
+        st_layout.addLayout(h_st_btns)
+
+        self.lbl_st_status = QLabel("Завантаження стану станції...")
+        self.lbl_st_status.setStyleSheet("color: #e6edf3; font-size: 11px; background: #1f222b; border: 1px solid #383d4a; border-radius: 6px; padding: 8px;")
+        st_layout.addWidget(self.lbl_st_status)
+
+        main_layout.addWidget(card_station)
+        
         # 2. GitHub Update Card
         card_update = QFrame()
         card_update.setObjectName("CardFrame")
@@ -227,6 +326,49 @@ class SettingsScreen(QWidget):
         main_layout.addWidget(card_favs)
         
         self.refresh_favorites_table()
+        self._on_station_brand_changed()
+        self._refresh_station_status()
+
+    def _on_station_brand_changed(self):
+        brand = self.combo_st_brand.currentData()
+        self.frame_ef.setVisible(brand == "ECOFLOW")
+        self.frame_bl.setVisible(brand == "BLUETTI")
+
+    def _save_station_settings(self):
+        brand = self.combo_st_brand.currentData()
+        PowerStationManager.set_selected_brand(brand)
+        if brand == "ECOFLOW":
+            PowerStationManager.save_ecoflow_config(
+                self.input_ef_ak.text().strip(),
+                self.input_ef_sk.text().strip(),
+                self.input_ef_sn.text().strip()
+            )
+        elif brand == "BLUETTI":
+            PowerStationManager.save_bluetti_config(
+                self.input_bl_email.text().strip(),
+                self.input_bl_pass.text().strip(),
+                self.input_bl_sn.text().strip()
+            )
+        self.notify_toast.emit("🔋 Зарядна станція", "Налаштування станції успішно збережено!", "SUCCESS")
+        self._refresh_station_status()
+        self.settings_saved.emit()
+
+    def _refresh_station_status(self):
+        brand = self.combo_st_brand.currentData()
+        PowerStationManager.set_selected_brand(brand)
+        tel = PowerStationManager.get_telemetry()
+        if not tel.is_configured:
+            self.lbl_st_status.setText("Станція не підключена (оберіть режим або введіть дані).")
+            return
+            
+        icon = "🟢" if tel.is_grid_online else "🔴"
+        mode_str = "Мережа 220В активна (йде зарядка/байпас)" if tel.is_grid_online else "Знеструмлено (робота від станції)"
+        rem = tel.format_remaining_time()
+        self.lbl_st_status.setText(
+            f"{icon} {tel.model_name} | {mode_str}\n"
+            f"🔋 Заряд: {tel.battery_percent}% | ⚡ Вхід 220В: {tel.in_watts} Вт | 💡 Вихід: {tel.out_watts} Вт | ⏱️ Автономність: {rem}\n"
+            f"ℹ️ {tel.status_details}"
+        )
 
     def _save_settings(self):
         config.set("notify_enabled", self.chk_notify.isChecked())

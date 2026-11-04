@@ -103,5 +103,19 @@ class HeaderBar(QFrame):
         self.lbl_status.style().unpolish(self.lbl_status)
         self.lbl_status.style().polish(self.lbl_status)
 
+    def update_station_status(self, tel):
+        if not tel or not tel.is_configured:
+            return
+        if tel.is_grid_online:
+            display_text = f"🟢 220В Є | 🔋 {tel.battery_percent}%"
+            self.lbl_status.setObjectName("StatusOnBadge")
+        else:
+            display_text = f"🔴 220В Немає | 🔋 {tel.battery_percent}%"
+            self.lbl_status.setObjectName("StatusOffBadge")
+        self.lbl_status.setText(display_text)
+        self.lbl_status.setToolTip(f"{tel.model_name}: {tel.status_details}")
+        self.lbl_status.style().unpolish(self.lbl_status)
+        self.lbl_status.style().polish(self.lbl_status)
+
     def set_theme_button_text(self, is_dark: bool):
         self.btn_theme.setText("🌙 Темна" if is_dark else "☀️ Світла")

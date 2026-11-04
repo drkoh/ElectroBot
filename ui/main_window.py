@@ -14,6 +14,7 @@ from core.telegram_schedule import fetch_schedule_from_telegram
 from core.status_resolver import resolve_unified_status, UnifiedStatus
 from core.config import config
 from core.async_workers import run_async
+from core.power_station import PowerStationManager
 from ui.styles import generate_stylesheet
 from ui.header_bar import HeaderBar
 from ui.sidebar import Sidebar
@@ -247,7 +248,11 @@ class MainWindow(QMainWindow):
         u_status = resolve_unified_status(active_a, active_q, self.schedule, now)
         
         # Update Header
-        self.header.update_status(not u_status.is_outage, active_q, u_status.badge_text)
+        tel = PowerStationManager.get_telemetry()
+        if tel.is_configured:
+            self.header.update_station_status(tel)
+        else:
+            self.header.update_status(not u_status.is_outage, active_q, u_status.badge_text)
         self.header.set_active_address_text(active_a)
         
         # Update System Tray
