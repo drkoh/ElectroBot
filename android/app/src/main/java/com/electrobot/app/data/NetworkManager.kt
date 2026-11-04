@@ -66,20 +66,43 @@ object NetworkManager {
                 queuesMap[q] = mutableListOf()
             }
 
-            // Parse lines like "1.1: 06:00 - 09:30, 15:30 - 18:30" or "підчерга 1.1: 06:00-09:00"
+            // Parse lines starting with queue like "1.1 06:00 - 09:30; 15:30 - 18:30" or "підчерга 1.1: 06:00-09:00"
+            val lineRegex = Regex("""^(?:підчерга\s+)?([1-6]\.[1-2])\s*[:\-–]?\s*(.+)$""", RegexOption.IGNORE_CASE)
             val lines = cleanText.split("\n", "<br>")
-            for (line in lines) {
-                for (q in allQueues) {
-                    if (line.contains(q)) {
-                        val timeRegex = Regex("""(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})""")
-                        for (tm in timeRegex.findAll(line)) {
-                            val startStr = tm.groupValues[1]
-                            val endStr = tm.groupValues[2]
-                            val sParts = startStr.split(":")
-                            val eParts = endStr.split(":")
-                            val sMin = sParts[0].toInt() * 60 + sParts[1].toInt()
-                            val eMin = eParts[0].toInt() * 60 + eParts[1].toInt()
-                            queuesMap[q]?.add(ScheduleInterval(sMin, eMin, startStr, endStr))
+            for (rawLine in lines) {
+                val line = rawLine.trim()
+                val match = lineRegex.find(line)
+                if (match != null) {
+                    val q = match.groupValues[1]
+                    val timesStr = match.groupValues[2]
+                    val timeRegex = Regex("""(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})""")
+                    for (tm in timeRegex.findAll(timesStr)) {
+                        val startStr = tm.groupValues[1]
+                        val endStr = tm.groupValues[2]
+                        val sParts = startStr.split(":")
+                        val eParts = endStr.split(":")
+                        val sMin = sParts[0].toInt() * 60 + sParts[1].toInt()
+                        val eMin = eParts[0].toInt() * 60 + eParts[1].toInt()
+                        queuesMap[q]?.add(ScheduleInterval(sMin, eMin, startStr, endStr))
+                    }
+                }
+            }
+
+            // Fallback to searching line containing queue name if lineRegex found nothing
+            if (queuesMap.values.all { it.isEmpty() }) {
+                for (line in lines) {
+                    for (q in allQueues) {
+                        if (line.startsWith(q) || line.contains("підчерга $q", ignoreCase = true)) {
+                            val timeRegex = Regex("""(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})""")
+                            for (tm in timeRegex.findAll(line)) {
+                                val startStr = tm.groupValues[1]
+                                val endStr = tm.groupValues[2]
+                                val sParts = startStr.split(":")
+                                val eParts = endStr.split(":")
+                                val sMin = sParts[0].toInt() * 60 + sParts[1].toInt()
+                                val eMin = eParts[0].toInt() * 60 + eParts[1].toInt()
+                                queuesMap[q]?.add(ScheduleInterval(sMin, eMin, startStr, endStr))
+                            }
                         }
                     }
                 }
@@ -93,6 +116,10 @@ object NetworkManager {
                 queuesMap["2.1"]?.add(ScheduleInterval(18 * 60 + 30, 21 * 60 + 30, "18:30", "21:30"))
             }
 
+            val cleanQueuesMap = queuesMap.mapValues { (_, list) ->
+                list.distinctBy { "${it.startMinute}-${it.endMinute}" }.sortedBy { it.startMinute }.toMutableList()
+            }
+
             val todayStr = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date())
             val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
@@ -103,7 +130,7 @@ object NetworkManager {
                     isEmergency = isEmerg,
                     emergencyAlertText = if (isEmerg) "У Харківській області діють екстрені відключення (ГАВ)" else "",
                     rawPostText = cleanText,
-                    queues = queuesMap
+                    queues = cleanQueuesMap
                 )
             )
         } catch (e: Exception) {

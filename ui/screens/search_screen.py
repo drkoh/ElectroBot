@@ -13,13 +13,14 @@ from core.pdf_indexer import search_records
 from core.config import config
 from core.service_1562 import check_address_in_1562, EmergencyOutage1562
 from core.address_utils import extract_street_and_building
+from core.queue_detector import detect_queue_for_address
 from ui.context_menu_helper import attach_line_edit_context_menu, attach_table_context_menu
 
 ALL_QUEUES = ["1.1", "1.2", "2.1", "2.2", "3.1", "3.2", "4.1", "4.2", "5.1", "5.2", "6.1", "6.2"]
 
 class EditAddressDialog(QDialog):
     """Material 3 Dialog to edit or add an address."""
-    def __init__(self, title: str = "", address: str = "", queue: str = "2.1", parent=None):
+    def __init__(self, title: str = "", address: str = "", queue: str = "1.1", parent=None):
         super().__init__(parent)
         self.setWindowTitle("Редагування адреси та черги")
         self.setFixedWidth(460)
@@ -44,20 +45,32 @@ class EditAddressDialog(QDialog):
         self.input_addr.setPlaceholderText("Вулиця та номер: напр. вул. Дудинської, 9")
         attach_line_edit_context_menu(self.input_addr)
         
+        auto_q = queue if queue else detect_queue_for_address(address)
         self.combo_q = QComboBox()
         for q in ALL_QUEUES:
             self.combo_q.addItem(f"Черга {q}", q)
-        idx = self.combo_q.findData(queue)
+        idx = self.combo_q.findData(auto_q)
         if idx >= 0:
             self.combo_q.setCurrentIndex(idx)
+            
+        self.input_addr.textChanged.connect(self._auto_detect_queue)
             
         form.addRow("🏷️ Назва мітки:", self.input_title)
         form.addRow("📍 Адреса з будинком:", self.input_addr)
         form.addRow("⚡ Черга відключення:", self.combo_q)
         layout.addLayout(form)
         
-        lbl_hint = QLabel("💡 Номер підчерги визначається графіком Харківобленерго (напр. 2.1, 1.1). Ви можете легко змінити його будь-коли.")
-        lbl_hint.setStyleSheet("font-size: 11px; font-style: italic;")
+        lbl_hint = QLabel("💡 Черга визначається автоматично за базою Харківобленерго (наприклад, для вул. Дудинської — Черга 1.1).")
+        lbl_hint.setStyleSheet("font-size: 11px; font-style: italic; color: #9ba3b4;")
+        lbl_hint.setWordWrap(True)
+        layout.addWidget(lbl_hint)
+
+    def _auto_detect_queue(self, text: str):
+        if len(text.strip()) >= 3:
+            detected = detect_queue_for_address(text)
+            idx = self.combo_q.findData(detected)
+            if idx >= 0:
+                self.combo_q.setCurrentIndex(idx)
         lbl_hint.setWordWrap(True)
         layout.addWidget(lbl_hint)
         

@@ -51,8 +51,19 @@ fun MainScreen(
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Графік, 1: Всі черги, 2: Пошук, 3: Аварії 1562, 4: Опції
 
-    var activeQueue by remember { mutableStateOf(prefs.getString("active_queue", "2.1") ?: "2.1") }
-    var activeAddress by remember { mutableStateOf(prefs.getString("active_address", "вул. Дудинської, 9") ?: "вул. Дудинської, 9") }
+    val initialAddr = prefs.getString("active_address", "вул. Дудинської, 9") ?: "вул. Дудинської, 9"
+    val autoQ = KharkivData.detectQueueForAddress(initialAddr)
+    val savedQ = prefs.getString("active_queue", null)
+    val effectiveQ = if (savedQ == null || (savedQ == "2.1" && initialAddr.contains("Дудинськ"))) autoQ else savedQ
+
+    var activeQueue by remember { mutableStateOf(effectiveQ) }
+    var activeAddress by remember { mutableStateOf(initialAddr) }
+
+    LaunchedEffect(Unit) {
+        if (savedQ != effectiveQ) {
+            prefs.edit().putString("active_queue", effectiveQ).apply()
+        }
+    }
 
     var schedule by remember { mutableStateOf<DailySchedule?>(null) }
     var outages1562 by remember { mutableStateOf<List<EmergencyOutage1562>>(emptyList()) }
@@ -67,9 +78,9 @@ fun MainScreen(
     fun loadFavorites(): List<FavoriteAddress> {
         val jsonStr = prefs.getString("favorites_json", null)
         if (jsonStr == null) {
-            // Default favorites
+            // Default favorites with exact 1.1 queue
             return listOf(
-                FavoriteAddress("fav_1", "Мій дім", "вул. Дудинської, 9", "2.1"),
+                FavoriteAddress("fav_1", "Мій дім", "вул. Дудинської, 9", "1.1"),
                 FavoriteAddress("fav_2", "Офіс", "вул. Полтавський Шлях, 10", "1.2")
             )
         }
@@ -78,12 +89,17 @@ fun MainScreen(
             val arr = JSONArray(jsonStr)
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
+                val addr = obj.optString("address", "")
+                var q = obj.optString("queue", "1.1")
+                if (q == "2.1" && addr.contains("Дудинськ")) {
+                    q = "1.1"
+                }
                 list.add(
                     FavoriteAddress(
                         id = obj.optString("id", "fav_$i"),
                         title = obj.optString("title", "Адреса"),
-                        address = obj.optString("address", ""),
-                        queue = obj.optString("queue", "2.1")
+                        address = addr,
+                        queue = q
                     )
                 )
             }
@@ -172,8 +188,8 @@ fun MainScreen(
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Text("📋", fontSize = 18.sp) },
-                    label = { Text("Всі черги", fontSize = 11.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
+                    icon = { Text("📍", fontSize = 18.sp) },
+                    label = { Text("Мої адреси", fontSize = 11.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = theme.accentPrimary,
                         selectedTextColor = theme.accentPrimary,
@@ -242,10 +258,28 @@ fun MainScreen(
                     onRefresh = { refreshData() },
                     onEditAddress = { showEditAddressDialog = true }
                 )
-                1 -> AllQueuesTab(
+                1 -> MyAddressesTab(
                     theme = theme,
+                    context = context,
+                    activeAddress = activeAddress,
                     activeQueue = activeQueue,
+                    favorites = favoritesList,
                     schedule = schedule,
+                    outages1562 = outages1562,
+                    onSelectActive = { fav ->
+                        activeAddress = fav.address
+                        activeQueue = fav.queue
+                        prefs.edit().putString("active_address", fav.address).putString("active_queue", fav.queue).apply()
+                        Toast.makeText(context, "🏠 Активна адреса: ${fav.address} (Черга ${fav.queue})", Toast.LENGTH_SHORT).show()
+                        selectedTab = 0
+                    },
+                    onAddAddress = { showEditAddressDialog = true },
+                    onDeleteAddress = { id ->
+                        val updated = favoritesList.filter { it.id != id }
+                        favoritesList = updated
+                        saveFavorites(updated)
+                        Toast.makeText(context, "Адресу видалено", Toast.LENGTH_SHORT).show()
+                    },
                     onSelectQueue = { q ->
                         activeQueue = q
                         val newAddr = "Харків (Черга $q)"
@@ -636,69 +670,268 @@ fun TimelineGraphicBar(
 }
 
 // -----------------------------------------------------------------------------
-// TAB 1: ALL QUEUES OVERVIEW (Всі черги)
+// TAB 1: MY ADDRESSES (Мої збережені адреси та черги)
 // -----------------------------------------------------------------------------
 @Composable
-fun AllQueuesTab(
+fun MyAddressesTab(
     theme: ElectroCustomColors,
+    context: Context,
+    activeAddress: String,
     activeQueue: String,
+    favorites: List<FavoriteAddress>,
     schedule: DailySchedule?,
+    outages1562: List<EmergencyOutage1562>,
+    onSelectActive: (FavoriteAddress) -> Unit,
+    onAddAddress: () -> Unit,
+    onDeleteAddress: (String) -> Unit,
     onSelectQueue: (String) -> Unit
 ) {
     val allQueues = listOf("1.1", "1.2", "2.1", "2.2", "3.1", "3.2", "4.1", "4.2", "5.1", "5.2", "6.1", "6.2")
     val now = Calendar.getInstance()
     val curMinute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+    var showAllQueuesAccordion by remember { mutableStateOf(false) }
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Purpose Banner
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp),
-            colors = CardDefaults.cardColors(containerColor = theme.cardBg),
-            border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
-        ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "📋 Зведена таблиця черг Харкова (ГПВ)",
-                    color = theme.accentPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "💡 Навіщо обирати чергу: натисніть «🏠 Зробити моєю», щоб ElectroBot вів персональний зворотний відлік на головному екрані та надсилав сповіщення саме для вашого будинку.",
-                    color = theme.textMuted,
-                    fontSize = 11.sp
-                )
+        // Purpose / Header Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "📍 Мої збережені адреси (${favorites.size})",
+                        color = theme.accentPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Персональний моніторинг світла для вашого житла, офісу чи рідних. Натисніть «🏠 Зробити активною», щоб переглянути детальний розклад на головному екрані.",
+                        color = theme.textMuted,
+                        fontSize = 11.sp
+                    )
+                }
             }
         }
 
         // Emergency GAV Banner if applicable
         if (schedule?.isEmergency == true) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = theme.badgeDangerBg),
-                border = androidx.compose.foundation.BorderStroke(1.dp, theme.badgeDangerBorder)
-            ) {
-                Text(
-                    text = "🚨 УВАГА! ДІЮТЬ ГРАФІКИ АВАРІЙНИХ ВІДКЛЮЧЕНЬ (ГАВ). Відключення можуть відбуватися поза розкладом.",
-                    color = theme.badgeDangerText,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(10.dp)
-                )
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = theme.badgeDangerBg),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.badgeDangerBorder)
+                ) {
+                    Text(
+                        text = "🚨 УВАГА! ДІЮТЬ ГРАФІКИ АВАРІЙНИХ ВІДКЛЮЧЕНЬ (ГАВ). Відключення можуть відбуватися поза розкладом.",
+                        color = theme.badgeDangerText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        // User's Saved Address Cards
+        items(favorites) { fav ->
+            val isCurrent = (fav.address == activeAddress || (fav.queue == activeQueue && fav.address.contains("Дудинськ")))
+            val status = StatusResolver.resolve(fav.address, fav.queue, schedule, outages1562)
+            val intervals = (schedule?.queues?.get(fav.queue) ?: emptyList()).distinctBy { it.startMinute to it.endMinute }.sortedBy { it.startMinute }
+            val hoursStr = if (intervals.isNotEmpty()) {
+                intervals.joinToString("; ") { "${it.startStr} - ${it.endStr}" }
+            } else {
+                "Відключень не заплановано"
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+                border = androidx.compose.foundation.BorderStroke(
+                    if (isCurrent) 1.5.dp else 1.dp,
+                    if (isCurrent) theme.accentPrimary else theme.cardBorder
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Header row: Title + Queue Badge + Active / Action
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = fav.title,
+                                color = theme.textPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(theme.badgeNeutralBg)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Черга ${fav.queue}",
+                                    color = theme.badgeNeutralText,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        if (isCurrent) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(theme.badgeSuccessBg)
+                                    .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = "✅ Активна",
+                                    color = theme.badgeSuccessText,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = { onSelectActive(fav) },
+                                shape = RoundedCornerShape(6.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("🏠 Зробити активною", fontSize = 11.sp)
+                            }
+                        }
+                    }
+
+                    // Address
+                    Text(
+                        text = fav.address,
+                        color = theme.textMuted,
+                        fontSize = 12.sp
+                    )
+
+                    // Live Status Pill + Countdown
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (status.isOutage) theme.badgeDangerBg else theme.badgeSuccessBg)
+                                .border(1.dp, if (status.isOutage) theme.badgeDangerBorder else theme.badgeSuccessBorder, RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = if (status.isOutage) {
+                                    if (status.stateType == "EMERGENCY_1562") "🚨 Аварія 1562"
+                                    else "🔴 Відключено"
+                                } else "🟢 Світло є",
+                                color = if (status.isOutage) theme.badgeDangerText else theme.badgeSuccessText,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (status.countdownHms.isNotBlank() && status.countdownHms != "00:00:00") {
+                            Text(
+                                text = "⏳ ${status.countdownHms}",
+                                color = theme.accentPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // Schedule intervals for this address
+                    Text(
+                        text = "📅 Графік на сьогодні: $hoursStr",
+                        color = theme.textPrimary,
+                        fontSize = 11.sp
+                    )
+
+                    // Delete button if more than 1
+                    if (favorites.size > 1) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(
+                                onClick = { onDeleteAddress(fav.id) },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("🗑️ Видалити", color = theme.accentDanger, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add New Address Button
+        item {
+            Button(
+                onClick = onAddAddress,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary)
+            ) {
+                Text("➕ Додати або змінити адресу", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Accordion: Full 12 queues reference guide
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showAllQueuesAccordion = !showAllQueuesAccordion },
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "📋 Довідник усіх 12 черг міста (ГПВ)",
+                        color = theme.textPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (showAllQueuesAccordion) "▲ Згорнути" else "▼ Показати",
+                        color = theme.accentPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        if (showAllQueuesAccordion) {
             items(allQueues) { q ->
                 val intervals = schedule?.queues?.get(q) ?: emptyList()
                 val isOffNow = intervals.any { curMinute in it.startMinute until it.endMinute }
@@ -708,8 +941,6 @@ fun AllQueuesTab(
                 } else {
                     "Відключень не заплановано"
                 }
-                val totalOffMin = intervals.sumOf { it.endMinute - it.startMinute }
-                val durStr = if (totalOffMin > 0) "${totalOffMin / 60}г ${totalOffMin % 60}хв" else "0 год"
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -723,19 +954,19 @@ fun AllQueuesTab(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .padding(10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "Черга $q",
                                     color = theme.textPrimary,
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(4.dp))
@@ -752,40 +983,18 @@ fun AllQueuesTab(
                             }
                             Text(
                                 text = "Години: $hoursStr",
-                                color = theme.textPrimary,
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                text = "Без світла за добу: $durStr",
                                 color = theme.textMuted,
-                                fontSize = 10.sp
+                                fontSize = 11.sp
                             )
                         }
 
-                        if (isCurrent) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(theme.badgeSuccessBg)
-                                    .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = "✅ Моя черга",
-                                    color = theme.badgeSuccessText,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        } else {
-                            Button(
-                                onClick = { onSelectQueue(q) },
-                                shape = RoundedCornerShape(6.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Text("🏠 Зробити моєю", fontSize = 11.sp)
-                            }
+                        Button(
+                            onClick = { onSelectQueue(q) },
+                            shape = RoundedCornerShape(6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("Обрати", fontSize = 11.sp)
                         }
                     }
                 }
@@ -810,12 +1019,16 @@ fun SearchTab(
 ) {
     var query by remember { mutableStateOf("Дудинської, 9") }
     var results by remember { mutableStateOf<List<StreetRecord>>(emptyList()) }
-    var selectedQueue by remember { mutableStateOf("2.1") }
+    var selectedQueue by remember { mutableStateOf("1.1") }
     var showSaveDialogForAddr by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(query) {
         val (st, _) = KharkivData.extractStreetAndBuilding(query)
         results = KharkivData.searchStreets(context, st.ifEmpty { query })
+        val detected = KharkivData.detectQueueForAddress(query)
+        if (detected.isNotBlank()) {
+            selectedQueue = detected
+        }
     }
 
     val (stTyped, bldTyped) = KharkivData.extractStreetAndBuilding(query)
@@ -968,7 +1181,10 @@ fun SearchTab(
 
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Button(
-                                onClick = { onSelectAddress(fullAddr, selectedQueue) },
+                                onClick = {
+                                    val q = KharkivData.detectQueueForAddress(fullAddr).ifEmpty { selectedQueue }
+                                    onSelectAddress(fullAddr, q)
+                                },
                                 shape = RoundedCornerShape(6.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
@@ -994,7 +1210,7 @@ fun SearchTab(
     if (showSaveDialogForAddr != null) {
         val targetAddr = showSaveDialogForAddr!!
         var favTitle by remember { mutableStateOf("Мій дім") }
-        var favQ by remember { mutableStateOf("2.1") }
+        var favQ by remember(targetAddr) { mutableStateOf(KharkivData.detectQueueForAddress(targetAddr).ifEmpty { "1.1" }) }
 
         AlertDialog(
             onDismissRequest = { showSaveDialogForAddr = null },
@@ -1683,6 +1899,17 @@ fun EditAddressDialog(
     var queueText by remember { mutableStateOf(currentQueue) }
     val allQueues = listOf("1.1", "1.2", "2.1", "2.2", "3.1", "3.2", "4.1", "4.2", "5.1", "5.2", "6.1", "6.2")
 
+    // Real-time automatic queue detection as user types
+    val autoDetected = remember(addrText) {
+        if (addrText.isNotBlank()) KharkivData.detectQueueForAddress(addrText) else ""
+    }
+
+    LaunchedEffect(autoDetected) {
+        if (autoDetected.isNotBlank()) {
+            queueText = autoDetected
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -1699,7 +1926,24 @@ fun EditAddressDialog(
                     singleLine = true
                 )
 
-                Text("Підчерга відключень:", fontSize = 12.sp)
+                if (autoDetected.isNotBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(theme.badgeSuccessBg)
+                            .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "✨ Автовизначення: знайдено Чергу $autoDetected",
+                            color = theme.badgeSuccessText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Text("Підчерга відключень (автоматично або вручну):", fontSize = 12.sp)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(allQueues) { q ->
                         val isSel = (q == queueText)
@@ -1722,7 +1966,7 @@ fun EditAddressDialog(
                 }
 
                 Text(
-                    text = "💡 Підказка: номер черги (від 1.1 до 6.2) закріплений АТ «Харківобленерго» за вашим будинком. Черга 2.1 була початковим зразком за замовчуванням.",
+                    text = "💡 Номер черги визначається за базою районів та підстанцій Харківобленерго (Холодна Гора — Черга 1.1). Ви можете скоригувати чергу вручну за потреби.",
                     color = theme.textMuted,
                     fontSize = 11.sp
                 )
@@ -1732,7 +1976,8 @@ fun EditAddressDialog(
             Button(
                 onClick = {
                     if (addrText.isNotBlank()) {
-                        onConfirm(addrText.trim(), queueText)
+                        val finalQ = if (queueText.isNotBlank()) queueText else if (autoDetected.isNotBlank()) autoDetected else "1.1"
+                        onConfirm(addrText.trim(), finalQ)
                     }
                 }
             ) {
