@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -701,13 +702,35 @@ fun ScheduleTab(
     }
 }
 
+fun calculatePowerOnIntervals(outageIntervals: List<ScheduleInterval>): List<ScheduleInterval> {
+    if (outageIntervals.isEmpty()) {
+        return listOf(ScheduleInterval(0, 1440, "00:00", "24:00"))
+    }
+    val sorted = outageIntervals.sortedBy { it.startMinute }
+    val onList = mutableListOf<ScheduleInterval>()
+    var cur = 0
+    for (inv in sorted) {
+        if (inv.startMinute > cur) {
+            val sStr = String.format(Locale.US, "%02d:%02d", cur / 60, cur % 60)
+            onList.add(ScheduleInterval(cur, inv.startMinute, sStr, inv.startStr))
+        }
+        cur = maxOf(cur, inv.endMinute)
+    }
+    if (cur < 1440) {
+        val sStr = String.format(Locale.US, "%02d:%02d", cur / 60, cur % 60)
+        onList.add(ScheduleInterval(cur, 1440, sStr, "24:00"))
+    }
+    return onList
+}
+
 // -----------------------------------------------------------------------------
 // TIMELINE GRAPHIC BAR (With Live Floating Needle)
 // -----------------------------------------------------------------------------
 @Composable
 fun TimelineGraphicBar(
     theme: ElectroCustomColors,
-    intervals: List<ScheduleInterval>
+    intervals: List<ScheduleInterval>,
+    compact: Boolean = false
 ) {
     val now = Calendar.getInstance()
     val curHour = now.get(Calendar.HOUR_OF_DAY)
@@ -715,12 +738,14 @@ fun TimelineGraphicBar(
     val curMinute = curHour * 60 + curMin
     val curFraction = curMinute.toFloat() / 1440f
     val timeLabel = String.format(Locale.US, "%02d:%02d", curHour, curMin)
+    val barHeight = if (compact) 18.dp else 34.dp
+    val topPad = if (compact) 14.dp else 18.dp
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 18.dp)
+                .padding(top = topPad)
         ) {
             val totalWidth = maxWidth
             val needleX = totalWidth * curFraction
@@ -729,10 +754,10 @@ fun TimelineGraphicBar(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(34.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .height(barHeight)
+                    .clip(RoundedCornerShape(if (compact) 4.dp else 6.dp))
                     .background(theme.badgeSuccessBg)
-                    .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(6.dp))
+                    .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(if (compact) 4.dp else 6.dp))
             ) {
                 // Red outage segments
                 for (inv in intervals) {
@@ -751,21 +776,21 @@ fun TimelineGraphicBar(
             }
 
             // Floating "▼ Зараз HH:mm" Badge
-            val badgeWidth = 68.dp
+            val badgeWidth = if (compact) 54.dp else 68.dp
             val badgeX = (needleX - badgeWidth / 2).coerceIn(0.dp, totalWidth - badgeWidth)
             Box(
                 modifier = Modifier
-                    .offset(x = badgeX, y = (-18).dp)
+                    .offset(x = badgeX, y = if (compact) (-14).dp else (-18).dp)
                     .width(badgeWidth)
                     .clip(RoundedCornerShape(4.dp))
                     .background(Color(0xFF1F6FEB))
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    .padding(horizontal = 3.dp, vertical = 1.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "▼ $timeLabel",
                     color = Color.White,
-                    fontSize = 9.sp,
+                    fontSize = if (compact) 8.sp else 9.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -773,9 +798,9 @@ fun TimelineGraphicBar(
             // Vertical Needle Line
             Box(
                 modifier = Modifier
-                    .offset(x = needleX - 1.5.dp)
-                    .width(3.dp)
-                    .height(34.dp)
+                    .offset(x = needleX - 1.dp)
+                    .width(2.5.dp)
+                    .height(barHeight)
                     .background(Color(0xFF58A6FF))
             )
         }
@@ -785,11 +810,11 @@ fun TimelineGraphicBar(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("00:00", color = theme.textMuted, fontSize = 9.sp)
-            Text("06:00", color = theme.textMuted, fontSize = 9.sp)
-            Text("12:00", color = theme.textMuted, fontSize = 9.sp)
-            Text("18:00", color = theme.textMuted, fontSize = 9.sp)
-            Text("24:00", color = theme.textMuted, fontSize = 9.sp)
+            Text("00:00", color = theme.textMuted, fontSize = if (compact) 8.sp else 9.sp)
+            Text("06:00", color = theme.textMuted, fontSize = if (compact) 8.sp else 9.sp)
+            Text("12:00", color = theme.textMuted, fontSize = if (compact) 8.sp else 9.sp)
+            Text("18:00", color = theme.textMuted, fontSize = if (compact) 8.sp else 9.sp)
+            Text("24:00", color = theme.textMuted, fontSize = if (compact) 8.sp else 9.sp)
         }
     }
 }
@@ -872,12 +897,8 @@ fun MyAddressesTab(
         items(favorites) { fav ->
             val isCurrent = (fav.address == activeAddress || (fav.queue == activeQueue && fav.address.contains("Дудинськ")))
             val status = StatusResolver.resolve(fav.address, fav.queue, schedule, outages1562, currentSecondsTicker)
-            val intervals = (schedule?.queues?.get(fav.queue) ?: emptyList()).distinctBy { it.startMinute to it.endMinute }.sortedBy { it.startMinute }
-            val hoursStr = if (intervals.isNotEmpty()) {
-                intervals.joinToString("; ") { "${it.startStr} - ${it.endStr}" }
-            } else {
-                "Відключень не заплановано"
-            }
+            val outageInvs = (schedule?.queues?.get(fav.queue) ?: emptyList()).distinctBy { it.startMinute to it.endMinute }.sortedBy { it.startMinute }
+            val powerOnInvs = calculatePowerOnIntervals(outageInvs)
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -892,7 +913,7 @@ fun MyAddressesTab(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // Header row: Title + Queue Badge + Active / Action
                     Row(
@@ -904,7 +925,7 @@ fun MyAddressesTab(
                             Text(
                                 text = fav.title,
                                 color = theme.textPrimary,
-                                fontSize = 15.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -945,58 +966,152 @@ fun MyAddressesTab(
                                 colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("🏠 Зробити активною", fontSize = 11.sp)
+                                Text("🏠 Обрати", fontSize = 11.sp)
                             }
                         }
                     }
 
-                    // Address
+                    // Address line
                     Text(
-                        text = fav.address,
+                        text = "📍 ${fav.address}",
                         color = theme.textMuted,
                         fontSize = 12.sp
                     )
 
-                    // Live Status Pill + Countdown
-                    Row(
+                    // Current Live Status Card (Very clear banner)
+                    Card(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = if (status.isOutage) theme.badgeDangerBg else theme.badgeSuccessBg),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (status.isOutage) theme.badgeDangerBorder else theme.badgeSuccessBorder)
                     ) {
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (status.isOutage) theme.badgeDangerBg else theme.badgeSuccessBg)
-                                .border(1.dp, if (status.isOutage) theme.badgeDangerBorder else theme.badgeSuccessBorder, RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = if (status.isOutage) {
-                                    if (status.stateType == "EMERGENCY_1562") "🚨 Аварія 1562"
-                                    else "🔴 Відключено"
-                                } else "🟢 Світло є",
-                                color = if (status.isOutage) theme.badgeDangerText else theme.badgeSuccessText,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (status.isOutage) {
+                                        if (status.stateType == "EMERGENCY_1562") "🚨 Аварійне знеструмлення (1562)"
+                                        else "🔴 Зараз світла НЕМАЄ"
+                                    } else "🟢 Зараз світло Є",
+                                    color = if (status.isOutage) theme.badgeDangerText else theme.badgeSuccessText,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (status.isOutage) "Очікуване увімкнення о ${status.targetTimeStr}"
+                                           else "Наступне вимкнення о ${status.targetTimeStr}",
+                                    color = theme.textPrimary,
+                                    fontSize = 11.sp
+                                )
+                            }
 
-                        if (status.countdownHms.isNotBlank() && status.countdownHms != "00:00:00") {
-                            Text(
-                                text = "⏳ ${status.countdownHms}",
-                                color = theme.accentPrimary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            if (status.countdownHms.isNotBlank() && status.countdownHms != "00:00:00") {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(theme.cardBg)
+                                        .border(1.dp, if (status.isOutage) theme.badgeDangerBorder else theme.badgeSuccessBorder, RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "⏳ ${status.countdownHms}",
+                                        color = if (status.isOutage) theme.badgeDangerText else theme.badgeSuccessText,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
 
-                    // Schedule intervals for this address
+                    // Mini 24h Timeline Bar
                     Text(
-                        text = "📅 Графік на сьогодні: $hoursStr",
-                        color = theme.textPrimary,
-                        fontSize = 11.sp
+                        text = "📊 Графік доби (24 години):",
+                        color = theme.textMuted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
+                    TimelineGraphicBar(theme = theme, intervals = outageInvs, compact = true)
+
+                    // EXPLICIT BREAKDOWN: When power is OFF vs When power is ON
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        // OFF intervals
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                text = "🔴 Світла НЕ БУДЕ (години відключення):",
+                                color = theme.accentDanger,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (outageInvs.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    for (inv in outageInvs) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(theme.badgeDangerBg)
+                                                .border(1.dp, theme.badgeDangerBorder, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        ) {
+                                            Text(
+                                                text = "${inv.startStr} - ${inv.endStr}",
+                                                color = theme.badgeDangerText,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text("Відключень не заплановано", color = theme.textMuted, fontSize = 11.sp)
+                            }
+                        }
+
+                        // ON intervals
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                text = "🟢 Світло БУДЕ (вікна живлення):",
+                                color = theme.badgeSuccessText,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (powerOnInvs.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    for (inv in powerOnInvs) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(theme.badgeSuccessBg)
+                                                .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        ) {
+                                            Text(
+                                                text = "${inv.startStr} - ${inv.endStr}",
+                                                color = theme.badgeSuccessText,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // Card Action Bar: Edit & Delete
                     Row(
