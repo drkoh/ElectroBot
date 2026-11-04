@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+import java.util.Locale
 
 @Composable
 fun MainScreen(
@@ -70,9 +71,11 @@ fun MainScreen(
     var isLoading by remember { mutableStateOf(false) }
     var isRouterOnline by remember { mutableStateOf<Boolean?>(null) }
     var activeRouterIp by remember { mutableStateOf(prefs.getString("router_ip", "") ?: "") }
+    var isWifiActive by remember { mutableStateOf(true) }
 
-    // Dialog state for editing address
-    var showEditAddressDialog by remember { mutableStateOf(false) }
+    // Dialog state for adding/editing address
+    var showAddressDialog by remember { mutableStateOf(false) }
+    var targetFavoriteForEdit by remember { mutableStateOf<FavoriteAddress?>(null) }
 
     // Favorites in State
     fun loadFavorites(): List<FavoriteAddress> {
@@ -144,6 +147,7 @@ fun MainScreen(
     fun refreshData() {
         coroutineScope.launch {
             isLoading = true
+            isWifiActive = NetworkManager.isWifiConnected(context)
             val tgRes = NetworkManager.fetchTelegramSchedule()
             if (tgRes.isSuccess) {
                 schedule = tgRes.getOrNull()
@@ -152,11 +156,15 @@ fun MainScreen(
             if (s1562Res.isSuccess) {
                 outages1562 = s1562Res.getOrNull() ?: emptyList()
             }
-            // Router ping check with dynamic gateway detection
-            val savedRouterIp = prefs.getString("router_ip", "") ?: ""
-            val (online, resIp) = NetworkManager.pingGateway(context, savedRouterIp, 800)
-            isRouterOnline = online
-            activeRouterIp = resIp
+            if (isWifiActive) {
+                // Router ping check with dynamic gateway detection
+                val savedRouterIp = prefs.getString("router_ip", "") ?: ""
+                val (online, resIp) = NetworkManager.pingGateway(context, savedRouterIp, 800)
+                isRouterOnline = online
+                activeRouterIp = resIp
+            } else {
+                isRouterOnline = null
+            }
             isLoading = false
         }
     }
@@ -254,9 +262,14 @@ fun MainScreen(
                     schedule = schedule,
                     isRouterOnline = isRouterOnline,
                     activeRouterIp = activeRouterIp,
+                    isWifiActive = isWifiActive,
                     isLoading = isLoading,
                     onRefresh = { refreshData() },
-                    onEditAddress = { showEditAddressDialog = true }
+                    onEditAddress = {
+                        targetFavoriteForEdit = favoritesList.firstOrNull { it.address == activeAddress }
+                            ?: FavoriteAddress("fav_active", "Мій дім", activeAddress, activeQueue)
+                        showAddressDialog = true
+                    }
                 )
                 1 -> MyAddressesTab(
                     theme = theme,
@@ -273,7 +286,14 @@ fun MainScreen(
                         Toast.makeText(context, "🏠 Активна адреса: ${fav.address} (Черга ${fav.queue})", Toast.LENGTH_SHORT).show()
                         selectedTab = 0
                     },
-                    onAddAddress = { showEditAddressDialog = true },
+                    onAddAddress = {
+                        targetFavoriteForEdit = null
+                        showAddressDialog = true
+                    },
+                    onEditAddress = { fav ->
+                        targetFavoriteForEdit = fav
+                        showAddressDialog = true
+                    },
                     onDeleteAddress = { id ->
                         val updated = favoritesList.filter { it.id != id }
                         favoritesList = updated
@@ -334,7 +354,11 @@ fun MainScreen(
                         activeQueue = q
                         prefs.edit().putString("active_queue", q).apply()
                     },
-                    onEditAddress = { showEditAddressDialog = true },
+                    onEditAddress = {
+                        targetFavoriteForEdit = favoritesList.firstOrNull { it.address == activeAddress }
+                            ?: FavoriteAddress("fav_active", "Мій дім", activeAddress, activeQueue)
+                        showAddressDialog = true
+                    },
                     activeRouterIp = activeRouterIp,
                     isRouterOnline = isRouterOnline,
                     onSaveRouterIp = { ip ->
@@ -346,19 +370,36 @@ fun MainScreen(
                 )
             }
 
-            // Edit Address Dialog
-            if (showEditAddressDialog) {
-                EditAddressDialog(
+            // Add / Edit Address Dialog
+            if (showAddressDialog) {
+                AddEditAddressDialog(
                     theme = theme,
-                    currentAddress = activeAddress,
-                    currentQueue = activeQueue,
-                    onDismiss = { showEditAddressDialog = false },
-                    onConfirm = { newAddr, newQ ->
-                        activeAddress = newAddr
-                        activeQueue = newQ
-                        prefs.edit().putString("active_address", newAddr).putString("active_queue", newQ).apply()
-                        showEditAddressDialog = false
-                        Toast.makeText(context, "✅ Адресу оновлено: $newAddr (Черга $newQ)", Toast.LENGTH_SHORT).show()
+                    existingFavorite = targetFavoriteForEdit,
+                    defaultQueue = activeQueue,
+                    onDismiss = { showAddressDialog = false },
+                    onConfirm = { id, title, address, queue, makeActive ->
+                        val updated = favoritesList.toMutableList()
+                        if (id != null) {
+                            val idx = updated.indexOfFirst { it.id == id }
+                            if (idx >= 0) {
+                                updated[idx] = FavoriteAddress(id, title, address, queue)
+                            } else {
+                                updated.add(FavoriteAddress(id, title, address, queue))
+                            }
+                        } else {
+                            val newId = "fav_${System.currentTimeMillis()}"
+                            updated.add(FavoriteAddress(newId, title, address, queue))
+                        }
+                        favoritesList = updated
+                        saveFavorites(updated)
+
+                        if (makeActive || updated.size == 1) {
+                            activeAddress = address
+                            activeQueue = queue
+                            prefs.edit().putString("active_address", address).putString("active_queue", queue).apply()
+                        }
+                        showAddressDialog = false
+                        Toast.makeText(context, "✅ Збережено: $title ($address, Черга $queue)", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -378,11 +419,13 @@ fun ScheduleTab(
     schedule: DailySchedule?,
     isRouterOnline: Boolean?,
     activeRouterIp: String = "",
+    isWifiActive: Boolean = true,
     isLoading: Boolean,
     onRefresh: () -> Unit,
     onEditAddress: () -> Unit
 ) {
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -409,7 +452,26 @@ fun ScheduleTab(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isRouterOnline != null) {
+                if (!isWifiActive) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(theme.badgeNeutralBg)
+                            .border(1.dp, theme.badgeNeutralBorder, RoundedCornerShape(6.dp))
+                            .clickable {
+                                Toast.makeText(context, "📱 Ви на мобільному зв'язку. Домашній роутер перевіряється через Wi-Fi.", Toast.LENGTH_LONG).show()
+                            }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "📱 Мобільна мережа",
+                            color = theme.badgeNeutralText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                } else if (isRouterOnline != null) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
@@ -604,11 +666,44 @@ fun ScheduleTab(
                 TimelineGraphicBar(theme = theme, intervals = intervals)
             }
         }
+
+        // Action: Share Schedule Button (Viber / Telegram)
+        Button(
+            onClick = {
+                val intervals = (schedule?.queues?.get(activeQueue) ?: emptyList()).distinctBy { it.startMinute to it.endMinute }.sortedBy { it.startMinute }
+                val invsStr = if (intervals.isNotEmpty()) {
+                    intervals.joinToString("; ") { "${it.startStr} - ${it.endStr}" }
+                } else "Відключень не заплановано"
+                val statusText = if (unifiedStatus.isOutage) "🔴 Світло відключено (${unifiedStatus.countdownHms})" else "🟢 Світло є"
+                val shareText = "⚡ Графік відключення світла (ElectroBot):\n📍 $activeAddress (Черга $activeQueue)\n📅 Сьогодні: $invsStr\n💡 Зараз: $statusText\n\nОфіційні дані: АТ «Харківобленерго»"
+                val sendIntent = Intent().apply {
+                    action = Intent.ACTION_SEND
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                    type = "text/plain"
+                }
+                context.startActivity(Intent.createChooser(sendIntent, "Поділитися розкладом"))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = theme.cardBg),
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.accentPrimary)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("📤", fontSize = 14.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Поділитися розкладом (Viber / Telegram)",
+                    color = theme.accentPrimary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
     }
 }
 
 // -----------------------------------------------------------------------------
-// TIMELINE GRAPHIC BAR
+// TIMELINE GRAPHIC BAR (With Live Floating Needle)
 // -----------------------------------------------------------------------------
 @Composable
 fun TimelineGraphicBar(
@@ -616,42 +711,73 @@ fun TimelineGraphicBar(
     intervals: List<ScheduleInterval>
 ) {
     val now = Calendar.getInstance()
-    val curMinute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+    val curHour = now.get(Calendar.HOUR_OF_DAY)
+    val curMin = now.get(Calendar.MINUTE)
+    val curMinute = curHour * 60 + curMin
     val curFraction = curMinute.toFloat() / 1440f
+    val timeLabel = String.format(Locale.US, "%02d:%02d", curHour, curMin)
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(32.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(theme.badgeSuccessBg)
-                .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(6.dp))
+                .padding(top = 18.dp)
         ) {
             val totalWidth = maxWidth
+            val needleX = totalWidth * curFraction
 
-            // Red outage segments
-            for (inv in intervals) {
-                val startRatio = inv.startMinute.toFloat() / 1440f
-                val endRatio = inv.endMinute.toFloat() / 1440f
-                val segWidth = (endRatio - startRatio) * totalWidth.value
+            // Bar Background Container
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(34.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(theme.badgeSuccessBg)
+                    .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(6.dp))
+            ) {
+                // Red outage segments
+                for (inv in intervals) {
+                    val startRatio = inv.startMinute.toFloat() / 1440f
+                    val endRatio = inv.endMinute.toFloat() / 1440f
+                    val segWidth = (endRatio - startRatio) * totalWidth.value
 
-                Box(
-                    modifier = Modifier
-                        .offset(x = totalWidth * startRatio)
-                        .width(segWidth.dp)
-                        .fillMaxHeight()
-                        .background(theme.badgeDangerBg)
+                    Box(
+                        modifier = Modifier
+                            .offset(x = totalWidth * startRatio)
+                            .width(segWidth.dp)
+                            .fillMaxHeight()
+                            .background(theme.badgeDangerBg)
+                    )
+                }
+            }
+
+            // Floating "▼ Зараз HH:mm" Badge
+            val badgeWidth = 68.dp
+            val badgeX = (needleX - badgeWidth / 2).coerceIn(0.dp, totalWidth - badgeWidth)
+            Box(
+                modifier = Modifier
+                    .offset(x = badgeX, y = (-18).dp)
+                    .width(badgeWidth)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF1F6FEB))
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "▼ $timeLabel",
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
 
-            // Current Time Needle
+            // Vertical Needle Line
             Box(
                 modifier = Modifier
-                    .offset(x = totalWidth * curFraction - 1.dp)
+                    .offset(x = needleX - 1.5.dp)
                     .width(3.dp)
-                    .fillMaxHeight()
-                    .background(Color(0xFF388BFD))
+                    .height(34.dp)
+                    .background(Color(0xFF58A6FF))
             )
         }
 
@@ -683,6 +809,7 @@ fun MyAddressesTab(
     outages1562: List<EmergencyOutage1562>,
     onSelectActive: (FavoriteAddress) -> Unit,
     onAddAddress: () -> Unit,
+    onEditAddress: (FavoriteAddress) -> Unit,
     onDeleteAddress: (String) -> Unit,
     onSelectQueue: (String) -> Unit
 ) {
@@ -871,14 +998,27 @@ fun MyAddressesTab(
                         fontSize = 11.sp
                     )
 
-                    // Delete button if more than 1
-                    if (favorites.size > 1) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(
+                    // Card Action Bar: Edit & Delete
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { onEditAddress(fav) },
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("✏️ Змінити", fontSize = 11.sp)
+                        }
+                        if (favorites.size > 1) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            OutlinedButton(
                                 onClick = { onDeleteAddress(fav.id) },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                             ) {
-                                Text("🗑️ Видалити", color = theme.accentDanger, fontSize = 10.sp)
+                                Text("🗑️", color = theme.accentDanger, fontSize = 11.sp)
                             }
                         }
                     }
@@ -894,7 +1034,7 @@ fun MyAddressesTab(
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary)
             ) {
-                Text("➕ Додати або змінити адресу", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text("➕ Додати нову адресу", fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -1885,18 +2025,21 @@ fun SettingsTab(
 }
 
 // -----------------------------------------------------------------------------
-// EDIT ADDRESS DIALOG
+// ADD / EDIT ADDRESS DIALOG
 // -----------------------------------------------------------------------------
 @Composable
-fun EditAddressDialog(
+fun AddEditAddressDialog(
     theme: ElectroCustomColors,
-    currentAddress: String,
-    currentQueue: String,
+    existingFavorite: FavoriteAddress?,
+    defaultQueue: String,
     onDismiss: () -> Unit,
-    onConfirm: (String, String) -> Unit
+    onConfirm: (id: String?, title: String, address: String, queue: String, makeActive: Boolean) -> Unit
 ) {
-    var addrText by remember { mutableStateOf(currentAddress) }
-    var queueText by remember { mutableStateOf(currentQueue) }
+    val isNew = (existingFavorite == null)
+    var titleText by remember { mutableStateOf(existingFavorite?.title ?: if (isNew) "Нова адреса" else "Мій дім") }
+    var addrText by remember { mutableStateOf(existingFavorite?.address ?: "") }
+    var queueText by remember { mutableStateOf(existingFavorite?.queue ?: defaultQueue) }
+    var makeActive by remember { mutableStateOf(isNew) }
     val allQueues = listOf("1.1", "1.2", "2.1", "2.2", "3.1", "3.2", "4.1", "4.2", "5.1", "5.2", "6.1", "6.2")
 
     // Real-time automatic queue detection as user types
@@ -1905,7 +2048,7 @@ fun EditAddressDialog(
     }
 
     LaunchedEffect(autoDetected) {
-        if (autoDetected.isNotBlank()) {
+        if (autoDetected.isNotBlank() && (isNew || autoDetected != queueText)) {
             queueText = autoDetected
         }
     }
@@ -1913,11 +2056,24 @@ fun EditAddressDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Редагувати адресу та чергу", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = if (isNew) "➕ Додати нову адресу" else "✏️ Редагувати адресу",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Адреса (вулиця та номер будинку):", fontSize = 12.sp)
+                Text("Назва адреси (наприклад: Дім, Робота, Батьки):", fontSize = 12.sp)
+                OutlinedTextField(
+                    value = titleText,
+                    onValueChange = { titleText = it },
+                    placeholder = { Text("Мій дім") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Text("Вулиця та номер будинку (м. Харків):", fontSize = 12.sp)
                 OutlinedTextField(
                     value = addrText,
                     onValueChange = { addrText = it },
@@ -1943,7 +2099,7 @@ fun EditAddressDialog(
                     }
                 }
 
-                Text("Підчерга відключень (автоматично або вручну):", fontSize = 12.sp)
+                Text("Підчерга відключень:", fontSize = 12.sp)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(allQueues) { q ->
                         val isSel = (q == queueText)
@@ -1965,6 +2121,25 @@ fun EditAddressDialog(
                     }
                 }
 
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { makeActive = !makeActive }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = makeActive,
+                        onCheckedChange = { makeActive = it }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Зробити активною на головному екрані",
+                        color = theme.textPrimary,
+                        fontSize = 12.sp
+                    )
+                }
+
                 Text(
                     text = "💡 Номер черги визначається за базою районів та підстанцій Харківобленерго (Холодна Гора — Черга 1.1). Ви можете скоригувати чергу вручну за потреби.",
                     color = theme.textMuted,
@@ -1977,7 +2152,8 @@ fun EditAddressDialog(
                 onClick = {
                     if (addrText.isNotBlank()) {
                         val finalQ = if (queueText.isNotBlank()) queueText else if (autoDetected.isNotBlank()) autoDetected else "1.1"
-                        onConfirm(addrText.trim(), finalQ)
+                        val finalTitle = titleText.trim().ifEmpty { "Адреса" }
+                        onConfirm(existingFavorite?.id, finalTitle, addrText.trim(), finalQ, makeActive)
                     }
                 }
             ) {

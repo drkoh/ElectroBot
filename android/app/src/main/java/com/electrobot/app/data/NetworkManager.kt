@@ -235,6 +235,17 @@ object NetworkManager {
         return ""
     }
 
+    fun isWifiConnected(context: android.content.Context): Boolean {
+        try {
+            val cm = context.applicationContext.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return false
+            val network = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            return caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+        } catch (_: Exception) {
+            return false
+        }
+    }
+
     suspend fun pingGateway(
         context: android.content.Context? = null,
         targetIp: String = "",
