@@ -44,9 +44,10 @@ object StatusResolver {
         addressQuery: String,
         queueName: String,
         schedule: DailySchedule?,
-        outages1562: List<EmergencyOutage1562>
+        outages1562: List<EmergencyOutage1562>,
+        currentSecondsEpoch: Long = System.currentTimeMillis() / 1000
     ): UnifiedStatus {
-        val now = Calendar.getInstance()
+        val now = Calendar.getInstance().apply { timeInMillis = currentSecondsEpoch * 1000 }
         val curMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
         val curSeconds = curMinutes * 60 + now.get(Calendar.SECOND)
 

@@ -127,13 +127,6 @@ fun MainScreen(
 
     var favoritesList by remember { mutableStateOf(loadFavorites()) }
 
-    // Unified Status
-    val unifiedStatus by remember(activeAddress, activeQueue, schedule, outages1562) {
-        derivedStateOf {
-            StatusResolver.resolve(activeAddress, activeQueue, schedule, outages1562)
-        }
-    }
-
     // Live second ticker for countdown
     var currentSecondsTicker by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     LaunchedEffect(Unit) {
@@ -141,6 +134,11 @@ fun MainScreen(
             delay(1000)
             currentSecondsTicker = System.currentTimeMillis() / 1000
         }
+    }
+
+    // Unified Status (re-evaluated live every second)
+    val unifiedStatus = remember(activeAddress, activeQueue, schedule, outages1562, currentSecondsTicker) {
+        StatusResolver.resolve(activeAddress, activeQueue, schedule, outages1562, currentSecondsTicker)
     }
 
     // Initial load and periodic refresh
@@ -279,6 +277,7 @@ fun MainScreen(
                     favorites = favoritesList,
                     schedule = schedule,
                     outages1562 = outages1562,
+                    currentSecondsTicker = currentSecondsTicker,
                     onSelectActive = { fav ->
                         activeAddress = fav.address
                         activeQueue = fav.queue
@@ -807,6 +806,7 @@ fun MyAddressesTab(
     favorites: List<FavoriteAddress>,
     schedule: DailySchedule?,
     outages1562: List<EmergencyOutage1562>,
+    currentSecondsTicker: Long = 0L,
     onSelectActive: (FavoriteAddress) -> Unit,
     onAddAddress: () -> Unit,
     onEditAddress: (FavoriteAddress) -> Unit,
@@ -871,7 +871,7 @@ fun MyAddressesTab(
         // User's Saved Address Cards
         items(favorites) { fav ->
             val isCurrent = (fav.address == activeAddress || (fav.queue == activeQueue && fav.address.contains("Дудинськ")))
-            val status = StatusResolver.resolve(fav.address, fav.queue, schedule, outages1562)
+            val status = StatusResolver.resolve(fav.address, fav.queue, schedule, outages1562, currentSecondsTicker)
             val intervals = (schedule?.queues?.get(fav.queue) ?: emptyList()).distinctBy { it.startMinute to it.endMinute }.sortedBy { it.startMinute }
             val hoursStr = if (intervals.isNotEmpty()) {
                 intervals.joinToString("; ") { "${it.startStr} - ${it.endStr}" }
@@ -1405,11 +1405,20 @@ fun Emergencies1562Tab(
     isLoading: Boolean,
     onRefresh: () -> Unit
 ) {
-    var filterText by remember { mutableStateOf("Дудинської, 9") }
-    var elecOnly by remember { mutableStateOf(true) }
+    val initialAddr = KharkivData.extractStreetAndBuilding(activeAddress).let { (st, bld) ->
+        if (st.isNotEmpty()) "$st${if (bld.isNotEmpty()) ", $bld" else ""}"
+        else activeAddress.replace("Харків, ", "").replace("Харків (", "").replace(")", "").trim()
+    }
 
-    val (streetTyped, bldTyped) = KharkivData.extractStreetAndBuilding(filterText)
-    val searchStem = (streetTyped.ifEmpty { filterText }).lowercase().replace("вул.", "").replace("вулиця", "").replace("просп.", "").replace("пр.", "").trim()
+    var filterText by remember(activeAddress) { mutableStateOf(initialAddr) }
+    var elecOnly by remember { mutableStateOf(true) }
+    var isCityWideMode by remember { mutableStateOf(false) }
+
+    val effectiveFilter = if (isCityWideMode) "" else filterText.trim()
+    val hasFilter = effectiveFilter.isNotBlank()
+    val (streetTyped, bldTyped) = if (hasFilter) KharkivData.extractStreetAndBuilding(effectiveFilter) else ("" to "")
+    val searchStem = (streetTyped.ifEmpty { effectiveFilter }).lowercase()
+        .replace("вул.", "").replace("вулиця", "").replace("просп.", "").replace("пр.", "").trim()
     val stem = if (searchStem.length >= 4) searchStem.substring(0, 4) else searchStem
 
     // Filter base pool
@@ -1425,29 +1434,34 @@ fun Emergencies1562Tab(
     val streetMatches = mutableListOf<EmergencyOutage1562>()
     val allAffectedBlds = mutableListOf<String>()
 
-    for (ann in basePool) {
-        var stMatched = false
-        var bldMatched = false
+    if (hasFilter) {
+        for (ann in basePool) {
+            var stMatched = false
+            var bldMatched = false
 
-        for ((stName, bList) in ann.affectedStreets) {
-            val sNorm = stName.lowercase().replace("вул.", "").replace("вулиця", "").replace("просп.", "").replace("пр.", "").trim()
-            if (sNorm.contains(stem) || stem.contains(sNorm)) {
-                stMatched = true
-                allAffectedBlds.addAll(bList)
-                if (bldTyped.isNotEmpty() && ann.hasBuilding(bldTyped, bList)) {
-                    bldMatched = true
+            for ((stName, bList) in ann.affectedStreets) {
+                val sNorm = stName.lowercase().replace("вул.", "").replace("вулиця", "").replace("просп.", "").replace("пр.", "").trim()
+                if (sNorm.contains(stem) || stem.contains(sNorm)) {
+                    stMatched = true
+                    allAffectedBlds.addAll(bList)
+                    if (bldTyped.isNotEmpty() && ann.hasBuilding(bldTyped, bList)) {
+                        bldMatched = true
+                    }
                 }
             }
-        }
-        if (!stMatched && ann.rawAnnouncement.lowercase().contains(stem)) {
-            stMatched = true
-        }
+            if (!stMatched && ann.rawAnnouncement.lowercase().contains(stem)) {
+                stMatched = true
+            }
 
-        if (bldMatched) exactMatches.add(ann)
-        else if (stMatched) streetMatches.add(ann)
+            if (bldMatched) exactMatches.add(ann)
+            else if (stMatched) streetMatches.add(ann)
+        }
     }
 
     val uniqueBlds = allAffectedBlds.distinct()
+    val otherCityList = if (hasFilter) {
+        basePool.filter { it !in exactMatches && it !in streetMatches }
+    } else emptyList()
 
     Column(
         modifier = Modifier
@@ -1501,184 +1515,279 @@ fun Emergencies1562Tab(
             }
         }
 
-        // Search Filter + Quick 'My address'
+        // Quick Category Chips
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedTextField(
-                value = filterText,
-                onValueChange = { filterText = it },
-                placeholder = { Text("Введіть вулицю і будинок...", fontSize = 12.sp) },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = theme.inputBg,
-                    unfocusedContainerColor = theme.inputBg,
-                    focusedBorderColor = theme.accentPrimary,
-                    unfocusedBorderColor = theme.inputBorder,
-                    focusedTextColor = theme.textPrimary,
-                    unfocusedTextColor = theme.textPrimary
+            FilterChip(
+                selected = !isCityWideMode && filterText.isNotBlank(),
+                onClick = {
+                    filterText = initialAddr
+                    isCityWideMode = false
+                },
+                label = { Text("📍 Моя адреса", fontSize = 11.sp) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = theme.accentPrimary,
+                    selectedLabelColor = Color.White
                 )
             )
 
-            Button(
-                onClick = { filterText = activeAddress.replace("Харків, ", "").trim() },
-                shape = RoundedCornerShape(6.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = theme.cardBg),
-                border = androidx.compose.foundation.BorderStroke(1.dp, theme.accentPrimary),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-            ) {
-                Text("📍 Моя", color = theme.accentPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
+            FilterChip(
+                selected = isCityWideMode,
+                onClick = {
+                    isCityWideMode = true
+                },
+                label = { Text("🏙️ Все місто (${basePool.size})", fontSize = 11.sp) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = theme.accentPrimary,
+                    selectedLabelColor = Color.White
+                )
+            )
+
+            FilterChip(
+                selected = elecOnly,
+                onClick = { elecOnly = !elecOnly },
+                label = { Text(if (elecOnly) "⚡ Лише струм" else "🔧 Усі служби", fontSize = 11.sp) }
+            )
         }
 
-        // Diagnostic Feedback Card (Material 3 Smart Banner)
-        if (filterText.isNotBlank()) {
-            if (bldTyped.isNotEmpty()) {
-                if (exactMatches.isNotEmpty()) {
-                    // Exact house outage
-                    val first = exactMatches.first()
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = theme.badgeDangerBg),
-                        border = androidx.compose.foundation.BorderStroke(1.5.dp, theme.badgeDangerBorder)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(
-                                text = "🚨 УВАГА! Будинок № $bldTyped ($streetTyped) — АВАРІЙНЕ ЗНЕСТРУМЛЕННЯ!",
-                                color = theme.badgeDangerText,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "⏰ Орієнтовне відновлення: ${first.plannedEndTime}",
-                                color = theme.textPrimary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "⚡ Роботи: ${first.workType} (${first.service})",
-                                color = theme.textMuted,
-                                fontSize = 10.sp
-                            )
-                        }
-                    }
-                } else if (streetMatches.isNotEmpty()) {
-                    // Street affected, but user's house is unaffected
-                    val bldsStr = uniqueBlds.take(10).joinToString(", ")
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = theme.badgeSuccessBg),
-                        border = androidx.compose.foundation.BorderStroke(1.5.dp, theme.badgeSuccessBorder)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(
-                                text = "🟢 Будинок № $bldTyped ($streetTyped): АВАРІЙ 1562 НЕМАЄ",
-                                color = theme.badgeSuccessText,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "💡 Аварійні роботи на вашій вулиці стосуються тільки сусідніх будинків: $bldsStr. Електроенергія у вашому будинку № $bldTyped подається за штатним графіком Обленерго.",
-                                color = theme.textPrimary,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                } else {
-                    // No 1562 outages
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = theme.cardBg),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
-                    ) {
-                        Text(
-                            text = "ℹ️ За адресою «$filterText» аварійних знеструмлень 1562 не зафіксовано. Якщо світла немає — діє графік Обленерго (ГПВ) або аварійні графіки (ГАВ).",
-                            color = theme.textMuted,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(10.dp)
-                        )
-                    }
+        // Search Filter Input
+        OutlinedTextField(
+            value = filterText,
+            onValueChange = {
+                filterText = it
+                isCityWideMode = false
+            },
+            placeholder = { Text("Введіть вулицю та будинок...", fontSize = 12.sp) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            trailingIcon = {
+                if (filterText.isNotEmpty()) {
+                    Text(
+                        text = "✕",
+                        color = theme.textMuted,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clickable {
+                                filterText = ""
+                                isCityWideMode = true
+                            }
+                            .padding(8.dp)
+                    )
                 }
-            }
-        }
-
-        // Announcements List
-        val displayList = if (filterText.isNotBlank()) {
-            if (exactMatches.isNotEmpty()) exactMatches
-            else if (streetMatches.isNotEmpty()) streetMatches
-            else emptyList()
-        } else basePool
-
-        Text(
-            text = "Аварійні повідомлення (${displayList.size}):",
-            color = theme.textMuted,
-            fontSize = 11.sp
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = theme.inputBg,
+                unfocusedContainerColor = theme.inputBg,
+                focusedBorderColor = theme.accentPrimary,
+                unfocusedBorderColor = theme.inputBorder,
+                focusedTextColor = theme.textPrimary,
+                unfocusedTextColor = theme.textPrimary
+            )
         )
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(displayList) { out ->
-                val isUnaffected = (bldTyped.isNotEmpty() && !out.hasBuilding(bldTyped, out.affectedStreets.values.flatten()))
+        // Diagnostic Feedback Card (Material 3 Smart Banner)
+        if (hasFilter) {
+            if (exactMatches.isNotEmpty()) {
+                // Exact house outage
+                val first = exactMatches.first()
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp),
-                    colors = CardDefaults.cardColors(containerColor = theme.cardBg),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+                    colors = CardDefaults.cardColors(containerColor = theme.badgeDangerBg),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, theme.badgeDangerBorder)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "Початок: ${out.startTime}",
-                                color = theme.textMuted,
-                                fontSize = 10.sp
-                            )
-                            Text(
-                                text = "Відновлення: ${out.plannedEndTime}",
-                                color = theme.accentDanger,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        val streetsStr = out.affectedStreets.entries.joinToString("; ") { (s, b) ->
-                            "$s (буд. ${b.joinToString(", ")})"
-                        }
-                        val prefix = if (isUnaffected) "ℹ️ [Буд. $bldTyped не торкнулося] " else ""
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(
-                            text = prefix + (streetsStr.ifEmpty { out.rawAnnouncement.take(120) }),
-                            color = theme.textPrimary,
+                            text = "🚨 УВАГА! Будинок № $bldTyped ($streetTyped) — АВАРІЙНЕ ЗНЕСТРУМЛЕННЯ!",
+                            color = theme.badgeDangerText,
                             fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "⏰ Орієнтовне відновлення: ${first.plannedEndTime}",
+                            color = theme.textPrimary,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
                         )
-
                         Text(
-                            text = out.workType,
+                            text = "⚡ Роботи: ${first.workType} (${first.service})",
                             color = theme.textMuted,
-                            fontSize = 11.sp
-                        )
-
-                        Text(
-                            text = "Виконавець: ${out.service}",
-                            color = theme.badgeNeutralText,
                             fontSize = 10.sp
                         )
                     }
                 }
+            } else if (streetMatches.isNotEmpty()) {
+                // Street affected, but user's house is unaffected
+                val bldsStr = uniqueBlds.take(10).joinToString(", ")
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = theme.badgeSuccessBg),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, theme.badgeSuccessBorder)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            text = "🟢 Будинок № $bldTyped ($streetTyped): АВАРІЙ 1562 НЕМАЄ",
+                            color = theme.badgeSuccessText,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "💡 Аварійні роботи на вашій вулиці стосуються тільки інших будинків: $bldsStr. Електроенергія у вашому будинку № $bldTyped подається за штатним графіком Обленерго.",
+                            color = theme.textPrimary,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            } else {
+                // No 1562 outages for address
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = theme.badgeSuccessBg),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.badgeSuccessBorder)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "🟢 За адресою «$effectiveFilter» аварійних робіт 1562 не зафіксовано",
+                            color = theme.badgeSuccessText,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Електропостачання за вашою адресою здійснюється згідно з погодинним графіком Обленерго (ГПВ).",
+                            color = theme.textPrimary,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
             }
+        }
+
+        // Announcements List (Never blank!)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (exactMatches.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "🚨 Аварійні роботи за вашою адресою (${exactMatches.size}):",
+                        color = theme.accentDanger,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                items(exactMatches) { out ->
+                    Outage1562Card(out = out, theme = theme, bldHighlight = bldTyped, isUnaffected = false)
+                }
+            }
+
+            if (streetMatches.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "⚠️ Роботи на вашій вулиці (інші будинки) (${streetMatches.size}):",
+                        color = theme.accentWarning,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                items(streetMatches) { out ->
+                    Outage1562Card(out = out, theme = theme, bldHighlight = bldTyped, isUnaffected = true)
+                }
+            }
+
+            if (otherCityList.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "🏙️ Інші аварійні роботи по місту (${otherCityList.size}):",
+                        color = theme.textMuted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                items(otherCityList) { out ->
+                    Outage1562Card(out = out, theme = theme, bldHighlight = "", isUnaffected = false)
+                }
+            }
+
+            if (isCityWideMode || !hasFilter) {
+                item {
+                    Text(
+                        text = "🏙️ Усі активні аварійні повідомлення по Харкову (${basePool.size}):",
+                        color = theme.textMuted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                items(basePool) { out ->
+                    Outage1562Card(out = out, theme = theme, bldHighlight = "", isUnaffected = false)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun Outage1562Card(
+    out: EmergencyOutage1562,
+    theme: ElectroCustomColors,
+    bldHighlight: String,
+    isUnaffected: Boolean
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+        border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Початок: ${out.startTime}",
+                    color = theme.textMuted,
+                    fontSize = 10.sp
+                )
+                Text(
+                    text = "Відновлення: ${out.plannedEndTime}",
+                    color = theme.accentDanger,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            val streetsStr = out.affectedStreets.entries.joinToString("; ") { (s, b) ->
+                "$s (буд. ${b.joinToString(", ")})"
+            }
+            val prefix = if (isUnaffected && bldHighlight.isNotEmpty()) "ℹ️ [Буд. $bldHighlight не знеструмлено] " else ""
+            Text(
+                text = prefix + (streetsStr.ifEmpty { out.rawAnnouncement.take(120) }),
+                color = theme.textPrimary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            Text(
+                text = out.workType,
+                color = theme.textMuted,
+                fontSize = 11.sp
+            )
+
+            Text(
+                text = "Виконавець: ${out.service}",
+                color = theme.badgeNeutralText,
+                fontSize = 10.sp
+            )
         }
     }
 }
