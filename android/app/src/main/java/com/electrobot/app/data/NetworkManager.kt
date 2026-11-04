@@ -155,6 +155,44 @@ object NetworkManager {
         }
     }
 
+    fun getFallbackSchedule(): DailySchedule {
+        val todayStr = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date())
+        val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        val defaultKharkivIntervals = mapOf(
+            "1.1" to listOf("06:00-09:00", "12:30-19:30", "23:00-24:00"),
+            "1.2" to listOf("06:00-09:00", "12:30-19:30", "22:00-24:00"),
+            "2.1" to listOf("06:00-09:00", "12:30-19:30", "22:00-24:00"),
+            "2.2" to listOf("02:00-09:00", "12:30-19:30", "22:00-23:00"),
+            "3.1" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
+            "3.2" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
+            "4.1" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
+            "4.2" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
+            "5.1" to listOf("02:00-06:00", "09:00-16:00", "19:30-22:00", "23:00-24:00"),
+            "5.2" to listOf("02:00-08:00", "09:00-16:00", "19:30-22:00", "23:00-24:00"),
+            "6.1" to listOf("02:00-08:00", "09:00-16:00", "19:30-22:00", "23:00-24:00"),
+            "6.2" to listOf("00:00-08:00", "09:00-16:00", "19:30-22:00", "23:00-24:00")
+        )
+        val cleanMap = mutableMapOf<String, List<ScheduleInterval>>()
+        for ((q, listStr) in defaultKharkivIntervals) {
+            val list = mutableListOf<ScheduleInterval>()
+            for (s in listStr) {
+                val parts = s.split("-")
+                val sParts = parts[0].split(":")
+                val eParts = parts[1].split(":")
+                val sMin = sParts[0].toInt() * 60 + sParts[1].toInt()
+                val eMin = eParts[0].toInt() * 60 + eParts[1].toInt()
+                list.add(ScheduleInterval(sMin, eMin, parts[0], parts[1]))
+            }
+            cleanMap[q] = list
+        }
+        return DailySchedule(
+            dateStr = "Графік на $todayStr",
+            fetchedAt = timeStr,
+            isEmergency = false,
+            queues = cleanMap
+        )
+    }
+
     suspend fun fetch1562Announcements(): Result<List<EmergencyOutage1562>> = withContext(Dispatchers.IO) {
         try {
             // Step 1: Initialize session on main page to obtain session cookies and active form parameters

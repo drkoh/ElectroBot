@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="12dp">
+
+    <!-- Header Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/app_icon"
+            android:contentDescription="ElectroBot" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ElectroBot"
+            android:textColor="#58a6ff"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:paddingStart="6dp"
+            android:paddingEnd="8dp" />
+
+        <TextView
+            android:id="@+id/widget_queue_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Черга 3.1"
+            android:textColor="#e6edf3"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:background="@drawable/widget_badge_yellow"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="2dp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/widget_btn_refresh"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" 🔄 "
+            android:textColor="#9ba3b4"
+            android:textSize="13sp"
+            android:padding="2dp" />
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#353946"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp" />
+
+    <!-- Status & Countdown Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/widget_status_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🟢 СВІТЛО Є"
+            android:textColor="#ffffff"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:background="@drawable/widget_badge_green"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="4dp" />
+
+        <TextView
+            android:id="@+id/widget_countdown"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⏱️ 02:14:35"
+            android:textColor="#e6edf3"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:paddingStart="8dp" />
+    </LinearLayout>
+
+    <!-- Action Text -->
+    <TextView
+        android:id="@+id/widget_action_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="До відключення о 15:00"
+        android:textColor="#9ba3b4"
+        android:textSize="11sp"
+        android:layout_marginTop="4dp"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <!-- Smart Charge Window -->
+    <TextView
+        android:id="@+id/widget_charge_window"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⚡ Вікно живлення: 3 год 30 хв (EcoFlow встигне на 100%)"
+        android:textColor="#58a6ff"
+        android:textSize="11sp"
+        android:layout_marginTop="4dp"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <!-- Bottom Footer (Address & Timestamp) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="6dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/widget_address_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="вул. Сумська, 40"
+            android:textColor="#687182"
+            android:textSize="10sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_updated_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Оновлено 17:40"
+            android:textColor="#687182"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+</LinearLayout>

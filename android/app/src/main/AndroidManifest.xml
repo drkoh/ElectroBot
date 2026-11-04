@@ -35,7 +35,7 @@
 
         <receiver
             android:name=".service.OutageAlarmReceiver"
-            android:exported="false" />
+            android:exported="true" />
 
         <receiver
             android:name=".service.BootReceiver"
@@ -44,6 +44,19 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".service.ElectroWidgetProvider"
+            android:exported="true"
+            android:label="⚡ ElectroBot Статус">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.electrobot.app.ACTION_UPDATE_WIDGET" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/electrobot_widget_info" />
         </receiver>
 
         <provider

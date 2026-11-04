@@ -1,7 +1,7 @@
 import os
 import sys
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from dataclasses import dataclass
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -24,6 +24,7 @@ class UnifiedStatus:
     countdown_hms: str
     charge_window_str: str
     is_emergency: bool
+    charge_window_advice: str = ""
     outage_1562: Optional[EmergencyOutage1562] = None
     scheduled_status: Optional[LiveStatus] = None
 
@@ -35,21 +36,46 @@ def format_seconds_to_hms(total_seconds: int) -> str:
     s = total_seconds % 60
     return f"{h:02d}:{m:02d}:{s:02d}"
 
-def calculate_charge_window(queue_name: str, schedule: DailySchedule, now_dt: datetime) -> str:
-    """Calculates continuous available power time before the next scheduled outage."""
+def calculate_charge_window(queue_name: str, schedule: DailySchedule, now_dt: datetime) -> Tuple[str, str]:
+    """Calculates continuous available power time and battery charging advice."""
     current_minutes = now_dt.hour * 60 + now_dt.minute
     intervals = schedule.queues.get(queue_name, [])
     if not intervals:
-        return "⚡ Необмежено (графік відсутній)"
+        return "⚡ Без обмежень", "Сьогодні планові відключення для вашої черги відсутні"
         
     sorted_invs = sorted(intervals, key=lambda i: i.start_minute)
     
     # Check if currently in an outage
+    active_outage = None
     for inv in sorted_invs:
         if inv.start_minute <= current_minutes < inv.end_minute:
-            return "❌ Зараз світла немає — зарядка неможлива"
+            active_outage = inv
+            break
             
-    # Find next outage
+    if active_outage:
+        # Power is OFF right now
+        on_start = active_outage.end_minute
+        next_outage_after = None
+        for inv in sorted_invs:
+            if inv.start_minute > on_start:
+                next_outage_after = inv
+                break
+        on_end = next_outage_after.start_minute if next_outage_after else 1440
+        on_dur = max(0, on_end - on_start)
+        on_h = on_dur // 60
+        on_m = on_dur % 60
+        dur_str = f"{on_h} год {on_m} хв" if (on_h > 0 and on_m > 0) else (f"{on_h} год" if on_h > 0 else f"{on_m} хв")
+        end_str = next_outage_after.start_str if next_outage_after else "24:00"
+        title = f"⏳ Наступне вікно живлення: з {active_outage.end_str} до {end_str}"
+        if on_dur >= 120:
+            advice = f"🟢 Тривалість {dur_str} — станція EcoFlow/Bluetti встигне повністю зарядитися (~1.5–2 год)."
+        elif on_dur >= 60:
+            advice = f"🟡 Тривалість {dur_str} — станція встигне набрати ~60–80% заряду."
+        else:
+            advice = f"⚠️ Коротке вікно ({dur_str}) — увімкніть турбо-зарядку станції."
+        return title, advice
+            
+    # Power is ON right now
     next_outage = None
     for inv in sorted_invs:
         if inv.start_minute > current_minutes:
@@ -60,14 +86,21 @@ def calculate_charge_window(queue_name: str, schedule: DailySchedule, now_dt: da
         mins_avail = next_outage.start_minute - current_minutes
         h = mins_avail // 60
         m = mins_avail % 60
-        if h > 0:
-            return f"⚡ Вікно зарядки: ~{h} год {m:02d} хв (до {next_outage.start_str})"
+        dur_str = f"{h} год {m} хв" if (h > 0 and m > 0) else (f"{h} год" if h > 0 else f"{m} хв")
+        title = f"⚡ Вікно живлення: {dur_str} (до {next_outage.start_str})"
+        if mins_avail >= 150:
+            advice = "🟢 Достатньо часу для 100% заряду станцій EcoFlow / Bluetti (~1.5–2 год) та павербанків."
+        elif mins_avail >= 60:
+            advice = "🟡 Помірний час: зарядна станція встигне набрати ~60–80% ємності."
         else:
-            return f"⚠️ Вікно зарядки закінчується: ~{m} хв (до {next_outage.start_str})"
+            advice = f"⚠️ Залишилось менше години ({dur_str}): перевірте рівень заряду станції та гаджетів."
+        return title, advice
     else:
         mins_to_midnight = 1440 - current_minutes
         h = mins_to_midnight // 60
-        return f"⚡ Вікно зарядки: до кінця доби (~{h} год)"
+        title = f"⚡ Вікно живлення: до кінця доби (~{h} год)"
+        advice = "🟢 Стабільне живлення: планових відключень до півночі більше не передбачено."
+        return title, advice
 
 def resolve_unified_status(
     address_query: str,
@@ -141,6 +174,7 @@ def resolve_unified_status(
             countdown_hms=hms,
             charge_window_str="❌ Зараз тривають аварійні ремонтні роботи",
             is_emergency=True,
+            charge_window_advice="Живлення відключено аварійно службою 1562. Економте заряд станції.",
             outage_1562=out_1562
         )
         
@@ -159,13 +193,14 @@ def resolve_unified_status(
             target_seconds_left=0,
             countdown_hms="--:--:--",
             charge_window_str="⚠️ Режим ГАВ: подача живлення нестабільна",
-            is_emergency=True
+            is_emergency=True,
+            charge_window_advice="Погодинний розклад не діє через розпорядження Укренерго. Використовуйте енергію ощадливо."
         )
         
     # Step 3: Scheduled Outage (ГПВ)
     if schedule and queue_name:
         sched_status = calculate_power_status(queue_name, schedule, now_dt)
-        charge_window = calculate_charge_window(queue_name, schedule, now_dt)
+        charge_window, charge_advice = calculate_charge_window(queue_name, schedule, now_dt)
         
         # Calculate seconds to next change
         current_sec = now_dt.hour * 3600 + now_dt.minute * 60 + now_dt.second
@@ -196,6 +231,7 @@ def resolve_unified_status(
                 countdown_hms=hms,
                 charge_window_str=charge_window,
                 is_emergency=False,
+                charge_window_advice=charge_advice,
                 scheduled_status=sched_status
             )
         else:
@@ -212,6 +248,7 @@ def resolve_unified_status(
                 countdown_hms=hms,
                 charge_window_str=charge_window,
                 is_emergency=False,
+                charge_window_advice=charge_advice,
                 scheduled_status=sched_status
             )
             

@@ -84,6 +84,7 @@ data class UnifiedStatus(
     val countdownHms: String,
     val chargeWindowStr: String,
     val isEmergency: Boolean,
+    val chargeWindowAdvice: String = "",
     val outage1562: EmergencyOutage1562? = null
 )
 

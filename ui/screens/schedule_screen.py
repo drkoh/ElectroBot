@@ -155,19 +155,26 @@ class ScheduleScreen(QWidget):
         # Row 4: Battery Charge Window Card (Smart Blackout Assistant)
         self.card_charge = QFrame()
         self.card_charge.setObjectName("CardFrame")
-        self.card_charge.setMinimumHeight(44)
-        charge_layout = QHBoxLayout(self.card_charge)
-        charge_layout.setContentsMargins(12, 8, 12, 8)
+        charge_layout = QVBoxLayout(self.card_charge)
+        charge_layout.setContentsMargins(14, 10, 14, 10)
+        charge_layout.setSpacing(4)
         
+        top_charge_layout = QHBoxLayout()
         self.lbl_charge_info = QLabel("⚡ Вікно для зарядки: розраховується...")
         self.lbl_charge_info.setStyleSheet("font-weight: 700; font-size: 13px;")
-        charge_layout.addWidget(self.lbl_charge_info)
-        charge_layout.addStretch()
+        top_charge_layout.addWidget(self.lbl_charge_info)
+        top_charge_layout.addStretch()
         
         btn_copy_status = QPushButton("📋 Скопіювати статус")
         btn_copy_status.setObjectName("SecondaryButton")
         btn_copy_status.clicked.connect(self._copy_current_status)
-        charge_layout.addWidget(btn_copy_status)
+        top_charge_layout.addWidget(btn_copy_status)
+        charge_layout.addLayout(top_charge_layout)
+        
+        self.lbl_charge_advice = QLabel("")
+        self.lbl_charge_advice.setStyleSheet("font-size: 11px;")
+        self.lbl_charge_advice.setWordWrap(True)
+        charge_layout.addWidget(self.lbl_charge_advice)
         
         hero_layout.addWidget(self.card_charge)
         main_layout.addWidget(self.card_hero)
@@ -368,6 +375,9 @@ class ScheduleScreen(QWidget):
         self.lbl_hero_details.setText(u_status.details)
         self.lbl_hero_subtext.setText(u_status.subtext)
         self.lbl_charge_info.setText(u_status.charge_window_str)
+        if hasattr(self, 'lbl_charge_advice'):
+            self.lbl_charge_advice.setText(u_status.charge_window_advice)
+            self.lbl_charge_advice.setVisible(bool(u_status.charge_window_advice))
         
         # Emergency Banner (Only for regional alerts GAV, as card_hero fully presents address-specific 1562 emergencies)
         if u_status.is_emergency and u_status.state_type == "EMERGENCY_GAV":

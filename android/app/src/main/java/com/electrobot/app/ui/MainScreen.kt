@@ -33,6 +33,8 @@ import com.electrobot.app.data.StatusResolver
 import com.electrobot.app.model.*
 import com.electrobot.app.service.GitHubUpdater
 import com.electrobot.app.service.UpdateInfo
+import com.electrobot.app.service.OutageNotificationScheduler
+import com.electrobot.app.service.ElectroWidgetProvider
 import com.electrobot.app.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -155,6 +157,10 @@ fun MainScreen(
             if (s1562Res.isSuccess) {
                 outages1562 = s1562Res.getOrNull() ?: emptyList()
             }
+            // Update alarms and widgets with fresh schedule
+            OutageNotificationScheduler.scheduleAlarmsForToday(context, activeQueue, schedule)
+            ElectroWidgetProvider.updateAllWidgets(context)
+
             if (isWifiActive) {
                 // Router ping check with dynamic gateway detection
                 val savedRouterIp = prefs.getString("router_ip", "") ?: ""
@@ -353,6 +359,8 @@ fun MainScreen(
                     onQueueChange = { q ->
                         activeQueue = q
                         prefs.edit().putString("active_queue", q).apply()
+                        OutageNotificationScheduler.scheduleAlarmsForToday(context, q, schedule)
+                        ElectroWidgetProvider.updateAllWidgets(context)
                     },
                     onEditAddress = {
                         targetFavoriteForEdit = favoritesList.firstOrNull { it.address == activeAddress }
@@ -366,7 +374,11 @@ fun MainScreen(
                         prefs.edit().putString("router_ip", ip).apply()
                         refreshData()
                     },
-                    onCheckRouter = { refreshData() }
+                    onCheckRouter = { refreshData() },
+                    onRescheduleAlarms = {
+                        OutageNotificationScheduler.scheduleAlarmsForToday(context, activeQueue, schedule)
+                        ElectroWidgetProvider.updateAllWidgets(context)
+                    }
                 )
             }
 
@@ -613,21 +625,30 @@ fun ScheduleTab(
                     )
                 }
 
-                // Battery Charge Window Helper
-                Box(
+                // Smart Battery & Power Station Charge Window Card
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .background(theme.inputBg)
-                        .border(1.dp, theme.accentPrimaryHover, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .border(1.dp, theme.accentPrimaryHover.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
                         text = unifiedStatus.chargeWindowStr,
-                        color = theme.badgeNeutralText,
+                        color = theme.accentPrimaryHover,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold
                     )
+                    if (unifiedStatus.chargeWindowAdvice.isNotEmpty()) {
+                        Text(
+                            text = unifiedStatus.chargeWindowAdvice,
+                            color = theme.textPrimary,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
                 }
             }
         }
@@ -1923,7 +1944,8 @@ fun SettingsTab(
     activeRouterIp: String,
     isRouterOnline: Boolean?,
     onSaveRouterIp: (String) -> Unit,
-    onCheckRouter: () -> Unit
+    onCheckRouter: () -> Unit,
+    onRescheduleAlarms: () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
@@ -1933,6 +1955,10 @@ fun SettingsTab(
     var updateStatusMessage by remember { mutableStateOf<String?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableIntStateOf(0) }
+
+    var isNotifEnabled by remember { mutableStateOf(OutageNotificationScheduler.isNotificationsEnabled(context)) }
+    var minutesBefore by remember { mutableIntStateOf(OutageNotificationScheduler.getMinutesBefore(context)) }
+    var isRestoreEnabled by remember { mutableStateOf(OutageNotificationScheduler.isNotifyRestoreEnabled(context)) }
 
     Column(
         modifier = Modifier
@@ -1990,6 +2016,144 @@ fun SettingsTab(
                     border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
                 ) {
                     Text("✏️ Змінити адресу та номер черги", color = theme.textPrimary, fontSize = 11.sp)
+                }
+            }
+        }
+
+        // 2. Outage Notifications Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("🔔 Завчасні сповіщення про графік", color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Попереджати перед початком відключення світла", color = theme.textMuted, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = isNotifEnabled,
+                        onCheckedChange = { checked ->
+                            isNotifEnabled = checked
+                            OutageNotificationScheduler.setNotificationsEnabled(context, checked)
+                            onRescheduleAlarms()
+                        }
+                    )
+                }
+
+                if (isNotifEnabled) {
+                    Text(
+                        text = "Час попередження до відключення:",
+                        color = theme.textPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(15, 30, 45, 60).forEach { mins ->
+                            val isSelected = minutesBefore == mins
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSelected) theme.accentPrimary else theme.inputBg)
+                                    .border(1.dp, if (isSelected) theme.accentPrimary else theme.cardBorder, RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        minutesBefore = mins
+                                        OutageNotificationScheduler.setMinutesBefore(context, mins)
+                                        onRescheduleAlarms()
+                                    }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$mins хв",
+                                    color = if (isSelected) TextWhite else theme.textPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("💡 Сповіщати за 10 хв до увімкнення світла", color = theme.textPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = isRestoreEnabled,
+                            onCheckedChange = { checked ->
+                                isRestoreEnabled = checked
+                                OutageNotificationScheduler.setNotifyRestoreEnabled(context, checked)
+                                onRescheduleAlarms()
+                            }
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        OutageNotificationScheduler.sendTestNotification(context)
+                        Toast.makeText(context, "🔔 Тестове сповіщення надіслано!", Toast.LENGTH_SHORT).show()
+                    },
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.cardBg),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+                ) {
+                    Text("🔔 Надіслати тестове сповіщення зараз", color = theme.textPrimary, fontSize = 11.sp)
+                }
+            }
+        }
+
+        // 3. Android Home Screen Widget Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("📱 Віджет на головний екран", color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(theme.badgeSuccessBg)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text("Підтримується", color = theme.badgeSuccessText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Text(
+                    text = "Щоб додати віджет на робочий стіл смартфона: затисніть порожнє місце на екрані ➔ оберіть «Віджети» ➔ «ElectroBot» ➔ перетягніть віджет на екран.",
+                    color = theme.textMuted,
+                    fontSize = 11.sp
+                )
+                Button(
+                    onClick = {
+                        ElectroWidgetProvider.updateAllWidgets(context)
+                        Toast.makeText(context, "🔄 Віджет оновлено!", Toast.LENGTH_SHORT).show()
+                    },
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.cardBg),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+                ) {
+                    Text("🔄 Оновити дані віджета", color = theme.textPrimary, fontSize = 11.sp)
                 }
             }
         }

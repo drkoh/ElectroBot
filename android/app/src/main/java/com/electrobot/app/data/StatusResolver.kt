@@ -14,29 +14,57 @@ object StatusResolver {
         return String.format(Locale.US, "%02d:%02d:%02d", h, m, s)
     }
 
-    fun calculateChargeWindow(queueName: String, schedule: DailySchedule?, nowCal: Calendar): String {
-        if (schedule == null) return "⚡ Графік завантажується..."
+    fun calculateChargeWindow(queueName: String, schedule: DailySchedule?, nowCal: Calendar): Pair<String, String> {
+        if (schedule == null) return Pair("⚡ Завантаження розкладу...", "Очікуємо дані Харківобленерго")
         val curMinutes = nowCal.get(Calendar.HOUR_OF_DAY) * 60 + nowCal.get(Calendar.MINUTE)
         val intervals = schedule.queues[queueName] ?: emptyList()
-        if (intervals.isEmpty()) return "⚡ Без обмежень"
+        if (intervals.isEmpty()) return Pair("⚡ Без обмежень", "Сьогодні планові відключення для вашої черги відсутні")
 
         val sortedInvs = intervals.sortedBy { it.startMinute }
-        for (inv in sortedInvs) {
-            if (curMinutes in inv.startMinute until inv.endMinute) {
-                return "❌ Світла немає — зарядка неможлива"
+        val activeOutage = sortedInvs.firstOrNull { curMinutes in it.startMinute until it.endMinute }
+
+        if (activeOutage != null) {
+            // Power is OFF right now. When is the next ON window?
+            val onStart = activeOutage.endMinute
+            val nextOutageAfter = sortedInvs.firstOrNull { it.startMinute > onStart }
+            val onEnd = nextOutageAfter?.startMinute ?: 1440
+            val onDurationMins = (onEnd - onStart).coerceAtLeast(0)
+            val onH = onDurationMins / 60
+            val onM = onDurationMins % 60
+            val durStr = if (onH > 0 && onM > 0) "${onH} год ${onM} хв" else if (onH > 0) "${onH} год" else "${onM} хв"
+            val title = "⏳ Наступне вікно живлення: з ${activeOutage.endStr} до ${nextOutageAfter?.startStr ?: "24:00"}"
+            val advice = if (onDurationMins >= 120) {
+                "🟢 Тривалість $durStr — станція EcoFlow/Bluetti встигне повністю зарядитися (~1.5–2 год)."
+            } else if (onDurationMins >= 60) {
+                "🟡 Тривалість $durStr — станція встигне набрати ~60–80% заряду."
+            } else {
+                "⚠️ Коротке вікно ($durStr) — підключіть станцію в режимі турбо-зарядки."
             }
+            return Pair(title, advice)
         }
 
+        // Power is ON right now
         val nextOutage = sortedInvs.firstOrNull { it.startMinute > curMinutes }
         return if (nextOutage != null) {
             val avail = nextOutage.startMinute - curMinutes
             val h = avail / 60
             val m = avail % 60
-            if (h > 0) "⚡ Вікно зарядки: ~${h} год ${m} хв (до ${nextOutage.startStr})"
-            else "⚠️ Залишилось: ~${m} хв (до ${nextOutage.startStr})"
+            val durStr = if (h > 0 && m > 0) "${h} год ${m} хв" else if (h > 0) "${h} год" else "${m} хв"
+            val title = "⚡ Вікно живлення: $durStr (до ${nextOutage.startStr})"
+            val advice = if (avail >= 150) {
+                "🟢 Достатньо часу для 100% заряду станцій EcoFlow / Bluetti (~1.5–2 год) та павербанків."
+            } else if (avail >= 60) {
+                "🟡 Помірний час: зарядна станція встигне набрати ~60–80% ємності."
+            } else {
+                "⚠️ Залишилось менше години ($durStr): перевірте рівень заряду станції та гаджетів."
+            }
+            Pair(title, advice)
         } else {
             val toMidnight = 1440 - curMinutes
-            "⚡ Вікно зарядки: до кінця доби (~${toMidnight / 60} год)"
+            val h = toMidnight / 60
+            val title = "⚡ Вікно живлення: до кінця доби (~${h} год)"
+            val advice = "🟢 Стабільне живлення: планових відключень до півночі більше не передбачено."
+            Pair(title, advice)
         }
     }
 
@@ -90,6 +118,7 @@ object StatusResolver {
                 countdownHms = formatSecondsToHms(targetSec),
                 chargeWindowStr = "❌ Тривають аварійні ремонтні роботи",
                 isEmergency = true,
+                chargeWindowAdvice = "Живлення відключено аварійно службою 1562. Економте заряд станції.",
                 outage1562 = match1562
             )
         }
@@ -108,7 +137,8 @@ object StatusResolver {
                 targetSecondsLeft = 0,
                 countdownHms = "--:--:--",
                 chargeWindowStr = "⚠️ Режим ГАВ: подача живлення нестабільна",
-                isEmergency = true
+                isEmergency = true,
+                chargeWindowAdvice = "Погодинний розклад не діє через розпорядження Укренерго. Використовуйте енергію ощадливо."
             )
         }
 
@@ -116,7 +146,7 @@ object StatusResolver {
         if (schedule != null && queueName.isNotEmpty()) {
             val intervals = schedule.queues[queueName] ?: emptyList()
             val activeOutage = intervals.firstOrNull { curMinutes in it.startMinute until it.endMinute }
-            val chargeWin = calculateChargeWindow(queueName, schedule, now)
+            val (chargeWinStr, chargeWinAdvice) = calculateChargeWindow(queueName, schedule, now)
 
             return if (activeOutage != null) {
                 val targetTotalSec = activeOutage.endMinute * 60
@@ -132,8 +162,9 @@ object StatusResolver {
                     targetTimeStr = activeOutage.endStr,
                     targetSecondsLeft = diffSec,
                     countdownHms = formatSecondsToHms(diffSec),
-                    chargeWindowStr = chargeWin,
-                    isEmergency = false
+                    chargeWindowStr = chargeWinStr,
+                    isEmergency = false,
+                    chargeWindowAdvice = chargeWinAdvice
                 )
             } else {
                 val nextOutage = intervals.sortedBy { it.startMinute }.firstOrNull { it.startMinute > curMinutes }
@@ -152,8 +183,9 @@ object StatusResolver {
                     targetTimeStr = targetDisp,
                     targetSecondsLeft = diffSec,
                     countdownHms = formatSecondsToHms(diffSec),
-                    chargeWindowStr = chargeWin,
-                    isEmergency = false
+                    chargeWindowStr = chargeWinStr,
+                    isEmergency = false,
+                    chargeWindowAdvice = chargeWinAdvice
                 )
             }
         }
@@ -170,7 +202,8 @@ object StatusResolver {
             targetSecondsLeft = 0,
             countdownHms = "--:--:--",
             chargeWindowStr = "",
-            isEmergency = false
+            isEmergency = false,
+            chargeWindowAdvice = ""
         )
     }
 }
