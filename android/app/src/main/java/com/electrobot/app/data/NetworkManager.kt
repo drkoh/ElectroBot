@@ -268,7 +268,10 @@ object NetworkManager {
             initConn.readTimeout = 8000
             initConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             
-            val cookiesHeader = initConn.headerFields["Set-Cookie"]?.joinToString("; ") { it.split(";")[0] } ?: ""
+            val cookiesList = initConn.headerFields.entries
+                .filter { it.key != null && it.key.equals("Set-Cookie", ignoreCase = true) }
+                .flatMap { it.value }
+            val cookiesHeader = cookiesList.joinToString("; ") { it.split(";")[0] }
             val initHtml = BufferedReader(InputStreamReader(initConn.inputStream, "UTF-8")).use { it.readText() }
             initConn.disconnect()
 
@@ -282,9 +285,8 @@ object NetworkManager {
                 val selName = sel.groupValues[1]
                 val selHtml = sel.value
                 val optRegex = Regex("""<option[^>]*value="([^"]*)"[^>]*selected""")
-                val optMatch = optRegex.find(selHtml)
-                if (optMatch != null) {
-                    formParams.add("$selName=${optMatch.groupValues[1]}")
+                for (opt in optRegex.findAll(selHtml)) {
+                    formParams.add("$selName=${opt.groupValues[1]}")
                 }
             }
 
@@ -365,77 +367,11 @@ object NetworkManager {
                 )
             }
 
-            if (outages.isEmpty()) {
-                val todayDate = SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date())
-                outages.add(
-                    EmergencyOutage1562(
-                        service = "АТ «Харківобленерго»",
-                        workType = "Аварійні роботи на трансформаторній підстанції ТП-214",
-                        startTime = "$todayDate 08:30",
-                        plannedEndTime = "$todayDate 18:00",
-                        rawAnnouncement = "Аварійне знеструмлення через пошкодження кабельної лінії 10 кВ. Тривають відновлювальні роботи.",
-                        affectedStreets = mapOf(
-                            "вул. Дудинської" to listOf("4/6", "4", "6", "8", "10", "12", "14"),
-                            "вул. Полтавський Шлях" to listOf("148", "150", "152")
-                        )
-                    )
-                )
-                outages.add(
-                    EmergencyOutage1562(
-                        service = "КСП «Харківміськліфт»",
-                        workType = "Аварійне відключення ОБЛЕНЕРГО (ліфтове обладнання)",
-                        startTime = "$todayDate 09:00",
-                        plannedEndTime = "$todayDate 20:00",
-                        rawAnnouncement = "Знеструмлення щитових житлових будинків у зв'язку з аварійними роботами РЕМ.",
-                        affectedStreets = mapOf(
-                            "вул. Сумська" to listOf("1", "3", "5", "7", "9", "11"),
-                            "просп. Науки" to listOf("12", "14", "16", "18")
-                        )
-                    )
-                )
-                outages.add(
-                    EmergencyOutage1562(
-                        service = "КП «Харківводоканал»",
-                        workType = "Аварійний ремонт насосної станції підкачки води",
-                        startTime = "$todayDate 10:00",
-                        plannedEndTime = "$todayDate 19:30",
-                        rawAnnouncement = "Тимчасове припинення водопостачання через аварію на водоводі D=300 мм.",
-                        affectedStreets = mapOf(
-                            "вул. Шевченка" to listOf("10", "12", "14", "16", "18"),
-                            "вул. Героїв Харкова" to listOf("20", "22", "24")
-                        )
-                    )
-                )
-            }
-
+            // Real live data only: no fake mock announcements
             Result.success(outages)
         } catch (e: Exception) {
-            val todayDate = SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date())
-            val fallbackOutages = listOf(
-                EmergencyOutage1562(
-                    service = "АТ «Харківобленерго»",
-                    workType = "Аварійні роботи на трансформаторній підстанції ТП-214",
-                    startTime = "$todayDate 08:30",
-                    plannedEndTime = "$todayDate 18:00",
-                    rawAnnouncement = "Аварійне знеструмлення через пошкодження кабельної лінії 10 кВ. Тривають відновлювальні роботи.",
-                    affectedStreets = mapOf(
-                        "вул. Дудинської" to listOf("4/6", "4", "6", "8", "10", "12", "14"),
-                        "вул. Полтавський Шлях" to listOf("148", "150", "152")
-                    )
-                ),
-                EmergencyOutage1562(
-                    service = "КСП «Харківміськліфт»",
-                    workType = "Аварійне відключення ОБЛЕНЕРГО (ліфтове обладнання)",
-                    startTime = "$todayDate 09:00",
-                    plannedEndTime = "$todayDate 20:00",
-                    rawAnnouncement = "Знеструмлення щитових житлових будинків у зв'язку з аварійними роботами РЕМ.",
-                    affectedStreets = mapOf(
-                        "вул. Сумська" to listOf("1", "3", "5", "7", "9", "11"),
-                        "просп. Науки" to listOf("12", "14", "16", "18")
-                    )
-                )
-            )
-            Result.success(fallbackOutages)
+            // Never return mock or fake outages
+            Result.failure(e)
         }
     }
 

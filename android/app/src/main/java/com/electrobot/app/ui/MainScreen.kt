@@ -39,6 +39,8 @@ import com.electrobot.app.service.UpdateInfo
 import com.electrobot.app.service.OutageNotificationScheduler
 import com.electrobot.app.service.ElectroWidgetProvider
 import com.electrobot.app.theme.*
+import java.text.SimpleDateFormat
+import java.util.Date
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -74,6 +76,7 @@ fun MainScreen(
 
     var schedule by remember { mutableStateOf<DailySchedule?>(NetworkManager.loadScheduleCache(context) ?: NetworkManager.getFallbackSchedule()) }
     var outages1562 by remember { mutableStateOf<List<EmergencyOutage1562>>(emptyList()) }
+    var lastUpdated1562 by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var isRouterOnline by remember { mutableStateOf<Boolean?>(null) }
     var activeRouterIp by remember { mutableStateOf(prefs.getString("router_ip", "") ?: "") }
@@ -163,6 +166,7 @@ fun MainScreen(
             val s1562Res = NetworkManager.fetch1562Announcements()
             if (s1562Res.isSuccess) {
                 outages1562 = s1562Res.getOrNull() ?: emptyList()
+                lastUpdated1562 = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
             }
             // Update alarms and widgets with fresh schedule
             OutageNotificationScheduler.scheduleAlarmsForToday(context, activeQueue, schedule)
@@ -371,6 +375,7 @@ fun MainScreen(
                     context = context,
                     activeAddress = activeAddress,
                     outages = outages1562,
+                    lastUpdated = lastUpdated1562,
                     isLoading = isLoading,
                     onRefresh = { refreshData() }
                 )
@@ -1563,6 +1568,7 @@ fun Emergencies1562Tab(
     context: Context,
     activeAddress: String,
     outages: List<EmergencyOutage1562>,
+    lastUpdated: String = "",
     isLoading: Boolean,
     onRefresh: () -> Unit
 ) {
@@ -1644,7 +1650,7 @@ fun Emergencies1562Tab(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Оперативна диспетчерська м. Харкова",
+                    text = if (lastUpdated.isNotEmpty()) "Оновлено о $lastUpdated • В базі: ${outages.size} робіт" else "Оперативна диспетчерська м. Харкова",
                     color = theme.textMuted,
                     fontSize = 11.sp
                 )
@@ -1876,7 +1882,37 @@ fun Emergencies1562Tab(
                 }
             }
 
-            if (isCityWideMode || !hasFilter) {
+            if (basePool.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "✅ Аварійних робіт 1562 не зафіксовано",
+                                color = theme.accentSuccess,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Диспетчерська служба 1562 наразі не реєструє відкритих аварій за вибраним фільтром.",
+                                color = theme.textMuted,
+                                fontSize = 11.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            } else if (isCityWideMode || !hasFilter) {
                 item {
                     Text(
                         text = "🏙️ Усі активні аварійні повідомлення по Харкову (${basePool.size}):",

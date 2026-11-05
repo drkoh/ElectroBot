@@ -16,6 +16,14 @@ class EmergencyOutage1562:
     raw_announcement: str
     affected_streets: Dict[str, List[str]] = field(default_factory=dict)
     
+    @property
+    def workType(self) -> str:
+        return self.work_type
+
+    @property
+    def reason(self) -> str:
+        return self.work_type
+    
     def matches_address(self, street_query: str, building: str = "") -> bool:
         if not building:
             st_clean, b_found = extract_street_and_building(street_query)
