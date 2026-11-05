@@ -28,7 +28,7 @@ data class UpdateInfo(
 
 object GitHubUpdater {
 
-    const val CURRENT_VERSION = "v1.1"
+    const val CURRENT_VERSION = "v1.2"
     private const val GITHUB_REPO = "drkoh/ElectroBot"
     private const val RELEASES_API = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
 
