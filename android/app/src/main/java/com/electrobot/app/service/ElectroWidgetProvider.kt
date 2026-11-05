@@ -56,10 +56,10 @@ class ElectroWidgetProvider : AppWidgetProvider() {
             appWidgetId: Int
         ) {
             val prefs = context.getSharedPreferences("electrobot_prefs", Context.MODE_PRIVATE)
-            val activeQueue = prefs.getString("active_queue", "3.1") ?: "3.1"
-            val activeAddress = prefs.getString("active_address", "м. Харків, вул. Сумська, 40") ?: "м. Харків, вул. Сумська, 40"
+            val activeQueue = prefs.getString("active_queue", "1.1") ?: "1.1"
+            val activeAddress = prefs.getString("active_address", "вул. Дудинської, 9") ?: "вул. Дудинської, 9"
 
-            val schedule = NetworkManager.getFallbackSchedule()
+            val schedule = NetworkManager.loadScheduleCache(context) ?: NetworkManager.getFallbackSchedule()
             val status = StatusResolver.resolve(
                 addressQuery = activeAddress,
                 queueName = activeQueue,

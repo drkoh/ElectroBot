@@ -13,18 +13,18 @@ CACHE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "latest_sched
 
 # Default fallback if offline on first run
 FALLBACK_RAW = """
-1.1 06:00-09:00; 12:30-19:30; 23:00-24:00
-1.2 06:00-09:00; 12:30-19:30; 22:00-24:00
-2.1 06:00-09:00; 12:30-19:30; 22:00-24:00
-2.2 02:00-09:00; 12:30-19:30; 22:00-23:00
-3.1 00:00-02:00; 08:00-12:30; 16:00-23:00
-3.2 00:00-02:00; 08:00-12:30; 16:00-23:00
-4.1 00:00-02:00; 08:00-12:30; 16:00-23:00
-4.2 00:00-02:00; 08:00-12:30; 16:00-23:00
-5.1 02:00-06:00; 09:00-16:00; 19:30-22:00; 23:00-24:00
-5.2 02:00-08:00; 09:00-16:00; 19:30-22:00; 23:00-24:00
-6.1 02:00-08:00; 09:00-16:00; 19:30-22:00; 23:00-24:00
-6.2 00:00-08:00; 09:00-16:00; 19:30-22:00; 23:00-24:00
+1.1 02:30-06:00; 09:30-16:30; 20:00-24:00
+1.2 00:00-06:00; 09:30-16:30; 20:00-24:00
+2.1 02:30-06:00; 09:30-16:30; 20:00-22:00
+2.2 02:30-06:00; 09:30-16:30; 20:00-22:00
+3.1 02:30-09:30; 13:00-20:00
+3.2 06:00-09:30; 13:00-20:00
+4.1 06:00-09:30; 13:00-20:00
+4.2 06:00-09:30; 13:00-20:00
+5.1 00:00-02:30; 08:00-13:00; 16:30-23:30
+5.2 00:00-02:30; 08:00-13:00; 16:30-23:30
+6.1 00:00-02:30; 06:00-13:00; 16:30-23:30
+6.2 00:00-02:30; 06:00-13:00; 16:30-23:30
 """
 
 def parse_schedule_text(text: str, title: str = "", date_str: str = "", fetched_at: str = "") -> DailySchedule:
@@ -68,41 +68,49 @@ def fetch_schedule_from_telegram() -> DailySchedule:
             
             queue_pattern = re.compile(r'\b[1-6]\.[1-2]\b')
             
-            # Check for recent emergency outage announcements in the last 6 messages
-            is_emergency = False
-            emergency_text = ""
-            for msg in reversed(messages[-6:]):
-                clean_m = re.sub(r'<br\s*/?>', '\n', msg)
-                clean_m = re.sub(r'<[^>]+>', '', clean_m)
-                clean_m = clean_m.replace("&nbsp;", " ").replace("&quot;", '"')
-                clean_m = clean_m.strip()
-                if any(k in clean_m.lower() for k in ["аварійні відключення", "гав", "сгав", "масштабної атаки", "масштабна атака"]):
-                    is_emergency = True
-                    lines = [l.strip() for l in clean_m.split('\n') if l.strip() and not l.startswith("Харківобленерго") and not l.startswith("Forwarded")]
-                    emergency_text = " ".join(lines[:2])
-                    break
+            # Find the latest hourly schedule message (containing queues 1.1 - 6.2)
+            schedule_idx = -1
+            found_schedule = None
             
-            for msg in reversed(messages):
+            for idx in range(len(messages) - 1, -1, -1):
+                msg = messages[idx]
                 clean_text = re.sub(r'<br\s*/?>', '\n', msg)
                 clean_text = re.sub(r'<[^>]+>', '', clean_text).strip()
-                
                 matches = queue_pattern.findall(clean_text)
                 if len(matches) >= 6:
                     time_match = re.search(r'<time[^>]*datetime="([^"]+)"', msg)
                     post_iso = time_match.group(1) if time_match else datetime.now().isoformat()
                     
-                    # Try to extract human date from text (e.g. "у середу, 4 листопада")
                     date_match = re.search(r'(у\s+\w+,\s+\d{1,2}\s+[а-яіїєґ]+)', clean_text, re.IGNORECASE)
                     date_display = date_match.group(1) if date_match else datetime.now().strftime("%d.%m.%Y")
                     
                     title = "Графік Харківобленерго (ГПВ)"
-                    schedule = parse_schedule_text(clean_text, title=title, date_str=date_display, fetched_at=post_iso)
-                    schedule.is_emergency = is_emergency
-                    schedule.emergency_alert_text = emergency_text
-                    
-                    if len(schedule.queues) >= 6:
-                        save_cache(schedule)
-                        return schedule
+                    parsed = parse_schedule_text(clean_text, title=title, date_str=date_display, fetched_at=post_iso)
+                    parsed.raw_post_text = clean_text
+                    if len(parsed.queues) >= 6:
+                        found_schedule = parsed
+                        schedule_idx = idx
+                        break
+            
+            if found_schedule:
+                # Check if any message published AFTER this schedule announces emergency cancellation (ГАВ/СГАВ)
+                is_emergency = False
+                emergency_text = ""
+                for idx in range(schedule_idx + 1, len(messages)):
+                    msg = messages[idx]
+                    clean_m = re.sub(r'<br\s*/?>', '\n', msg)
+                    clean_m = re.sub(r'<[^>]+>', '', clean_m).strip()
+                    clean_m_lower = clean_m.lower()
+                    if ("введено графіки аварійних" in clean_m_lower or "застосовано гав" in clean_m_lower or "введено сгав" in clean_m_lower or "діють графіки аварійних відключень" in clean_m_lower):
+                        is_emergency = True
+                        lines = [l.strip() for l in clean_m.split('\n') if l.strip() and not l.startswith("Харківобленерго") and not l.startswith("Forwarded")]
+                        emergency_text = " ".join(lines[:2])
+                        break
+                
+                found_schedule.is_emergency = is_emergency
+                found_schedule.emergency_alert_text = emergency_text
+                save_cache(found_schedule)
+                return found_schedule
     except Exception as e:
         print(f"Failed to fetch Telegram: {e}")
         

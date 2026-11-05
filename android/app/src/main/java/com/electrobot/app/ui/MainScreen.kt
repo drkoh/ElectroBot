@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -69,7 +72,7 @@ fun MainScreen(
         }
     }
 
-    var schedule by remember { mutableStateOf<DailySchedule?>(null) }
+    var schedule by remember { mutableStateOf<DailySchedule?>(NetworkManager.loadScheduleCache(context) ?: NetworkManager.getFallbackSchedule()) }
     var outages1562 by remember { mutableStateOf<List<EmergencyOutage1562>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var isRouterOnline by remember { mutableStateOf<Boolean?>(null) }
@@ -151,7 +154,11 @@ fun MainScreen(
             isWifiActive = NetworkManager.isWifiConnected(context)
             val tgRes = NetworkManager.fetchTelegramSchedule()
             if (tgRes.isSuccess) {
-                schedule = tgRes.getOrNull()
+                val s = tgRes.getOrNull()
+                if (s != null) {
+                    schedule = s
+                    NetworkManager.saveScheduleCache(context, s)
+                }
             }
             val s1562Res = NetworkManager.fetch1562Announcements()
             if (s1562Res.isSuccess) {
@@ -174,8 +181,26 @@ fun MainScreen(
         }
     }
 
+    // 1. Auto-refresh whenever app comes to foreground (screen unlock or task switch)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshData()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // 2. Periodic background refresh while app is active
     LaunchedEffect(Unit) {
-        refreshData()
+        while (true) {
+            refreshData()
+            delay(120_000) // check for updates every 2 minutes
+        }
     }
 
     Scaffold(

@@ -1,10 +1,13 @@
 package com.electrobot.app.data
 
+import android.content.Context
 import com.electrobot.app.model.DailySchedule
 import com.electrobot.app.model.EmergencyOutage1562
 import com.electrobot.app.model.ScheduleInterval
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
@@ -50,27 +53,49 @@ object NetworkManager {
                     .replace("&quot;", "\"")
                     .replace("&#39;", "'")
                     .replace("&amp;", "&")
+                    .trim()
             }
 
-            var bestPost = ""
-            for (p in posts.reversed()) {
-                val clean = cleanHtml(p)
-                if (clean.contains("підчерг") || clean.contains("черг") || clean.contains("1.1") || clean.contains("графік")) {
-                    bestPost = clean
+            val queueRegex = Regex("""\b([1-6]\.[1-2])\b""")
+            val timeRegex = Regex("""(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})""")
+
+            var targetPostIdx = -1
+            var bestCleanText = ""
+            var extractedDate = ""
+
+            // Find the newest post containing the hourly schedule table (at least 6 queues)
+            for (i in posts.indices.reversed()) {
+                val clean = cleanHtml(posts[i])
+                val qMatches = queueRegex.findAll(clean).map { it.groupValues[1] }.distinct().toList()
+                if (qMatches.size >= 6) {
+                    targetPostIdx = i
+                    bestCleanText = clean
+                    val dateMatch = Regex("""(у\s+\w+,\s+\d{1,2}\s+[а-яіїєґ]+)""", RegexOption.IGNORE_CASE).find(clean)
+                    if (dateMatch != null) {
+                        extractedDate = dateMatch.groupValues[1]
+                    }
                     break
                 }
             }
 
-            if (bestPost.isEmpty() && posts.isNotEmpty()) {
-                bestPost = cleanHtml(posts.last())
+            if (bestCleanText.isEmpty() && posts.isNotEmpty()) {
+                bestCleanText = cleanHtml(posts.last())
             }
 
-            val cleanText = bestPost
-            
-            // Check emergency
-            val isEmerg = cleanText.contains("аварійн", ignoreCase = true) ||
-                    cleanText.contains("ГАВ", ignoreCase = true) ||
-                    cleanText.contains("масованих атак", ignoreCase = true)
+            // Check if any post AFTER the schedule post specifically declared emergency shutdown (ГАВ/СГАВ)
+            var isEmerg = false
+            var emergAlertText = ""
+            if (targetPostIdx != -1) {
+                for (i in (targetPostIdx + 1) until posts.size) {
+                    val cleanAfter = cleanHtml(posts[i])
+                    val lower = cleanAfter.lowercase()
+                    if (lower.contains("введено графіки аварійних") || lower.contains("застосовано гав") || lower.contains("введено сгав") || lower.contains("діють графіки аварійних відключень")) {
+                        isEmerg = true
+                        emergAlertText = cleanAfter.lines().firstOrNull { it.isNotBlank() && !it.startsWith("Харківобленерго") } ?: "Введено аварійні відключення (ГАВ)"
+                        break
+                    }
+                }
+            }
 
             val queuesMap = mutableMapOf<String, MutableList<ScheduleInterval>>()
             val allQueues = listOf("1.1", "1.2", "2.1", "2.2", "3.1", "3.2", "4.1", "4.2", "5.1", "5.2", "6.1", "6.2")
@@ -78,9 +103,7 @@ object NetworkManager {
                 queuesMap[q] = mutableListOf()
             }
 
-            val lines = cleanText.split("\n")
-            val timeRegex = Regex("""(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})""")
-            val queueRegex = Regex("""\b([1-6]\.[1-2])\b""")
+            val lines = bestCleanText.split("\n")
 
             for (rawLine in lines) {
                 val line = rawLine.trim()
@@ -103,50 +126,21 @@ object NetworkManager {
                 }
             }
 
-            // Standard official Kharkiv schedule (matching desktop FALLBACK_RAW) for any empty queues
-            val defaultKharkivIntervals = mapOf(
-                "1.1" to listOf("06:00-09:00", "12:30-19:30", "23:00-24:00"),
-                "1.2" to listOf("06:00-09:00", "12:30-19:30", "22:00-24:00"),
-                "2.1" to listOf("06:00-09:00", "12:30-19:30", "22:00-24:00"),
-                "2.2" to listOf("02:00-09:00", "12:30-19:30", "22:00-23:00"),
-                "3.1" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
-                "3.2" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
-                "4.1" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
-                "4.2" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
-                "5.1" to listOf("02:00-06:00", "09:00-16:00", "19:30-22:00", "23:00-24:00"),
-                "5.2" to listOf("02:00-08:00", "09:00-16:00", "19:30-22:00", "23:00-24:00"),
-                "6.1" to listOf("02:00-08:00", "09:00-16:00", "19:30-22:00", "23:00-24:00"),
-                "6.2" to listOf("00:00-08:00", "09:00-16:00", "19:30-22:00", "23:00-24:00")
-            )
-
-            for ((q, list) in queuesMap) {
-                if (list.isEmpty()) {
-                    val defs = defaultKharkivIntervals[q] ?: emptyList()
-                    for (def in defs) {
-                        val parts = def.split("-")
-                        val sParts = parts[0].split(":")
-                        val eParts = parts[1].split(":")
-                        val sMin = sParts[0].toInt() * 60 + sParts[1].toInt()
-                        val eMin = eParts[0].toInt() * 60 + eParts[1].toInt()
-                        list.add(ScheduleInterval(sMin, eMin, parts[0], parts[1]))
-                    }
-                }
-            }
-
             val cleanQueuesMap = queuesMap.mapValues { (_, list) ->
                 list.distinctBy { "${it.startMinute}-${it.endMinute}" }.sortedBy { it.startMinute }.toMutableList()
             }
 
             val todayStr = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date())
             val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+            val displayDate = if (extractedDate.isNotBlank()) extractedDate else "Графік на $todayStr"
 
             Result.success(
                 DailySchedule(
-                    dateStr = "Графік на $todayStr",
+                    dateStr = displayDate,
                     fetchedAt = timeStr,
                     isEmergency = isEmerg,
-                    emergencyAlertText = if (isEmerg) "У Харківській області діють екстрені відключення (ГАВ)" else "",
-                    rawPostText = cleanText,
+                    emergencyAlertText = emergAlertText,
+                    rawPostText = bestCleanText,
                     queues = cleanQueuesMap
                 )
             )
@@ -155,22 +149,93 @@ object NetworkManager {
         }
     }
 
+    fun saveScheduleCache(context: Context, schedule: DailySchedule) {
+        try {
+            val json = JSONObject().apply {
+                put("dateStr", schedule.dateStr)
+                put("fetchedAt", schedule.fetchedAt)
+                put("isEmergency", schedule.isEmergency)
+                put("emergencyAlertText", schedule.emergencyAlertText)
+                put("rawPostText", schedule.rawPostText)
+                val qObj = JSONObject()
+                for ((q, list) in schedule.queues) {
+                    val arr = JSONArray()
+                    for (inv in list) {
+                        val invObj = JSONObject().apply {
+                            put("startMinute", inv.startMinute)
+                            put("endMinute", inv.endMinute)
+                            put("startStr", inv.startStr)
+                            put("endStr", inv.endStr)
+                        }
+                        arr.put(invObj)
+                    }
+                    qObj.put(q, arr)
+                }
+                put("queues", qObj)
+            }
+            context.getSharedPreferences("electrobot_prefs", Context.MODE_PRIVATE)
+                .edit().putString("cached_schedule_json", json.toString()).apply()
+        } catch (e: Exception) {
+            android.util.Log.e("NetworkManager", "Failed to cache schedule: ${e.message}")
+        }
+    }
+
+    fun loadScheduleCache(context: Context): DailySchedule? {
+        try {
+            val raw = context.getSharedPreferences("electrobot_prefs", Context.MODE_PRIVATE)
+                .getString("cached_schedule_json", null) ?: return null
+            val obj = JSONObject(raw)
+            val queuesMap = mutableMapOf<String, List<ScheduleInterval>>()
+            val qObj = obj.optJSONObject("queues")
+            if (qObj != null) {
+                val keys = qObj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val arr = qObj.getJSONArray(k)
+                    val list = mutableListOf<ScheduleInterval>()
+                    for (i in 0 until arr.length()) {
+                        val item = arr.getJSONObject(i)
+                        list.add(
+                            ScheduleInterval(
+                                item.getInt("startMinute"),
+                                item.getInt("endMinute"),
+                                item.getString("startStr"),
+                                item.getString("endStr")
+                            )
+                        )
+                    }
+                    queuesMap[k] = list
+                }
+            }
+            return DailySchedule(
+                dateStr = obj.optString("dateStr"),
+                fetchedAt = obj.optString("fetchedAt"),
+                isEmergency = obj.optBoolean("isEmergency", false),
+                emergencyAlertText = obj.optString("emergencyAlertText", ""),
+                rawPostText = obj.optString("rawPostText", ""),
+                queues = queuesMap
+            )
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
     fun getFallbackSchedule(): DailySchedule {
         val todayStr = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date())
         val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
         val defaultKharkivIntervals = mapOf(
-            "1.1" to listOf("06:00-09:00", "12:30-19:30", "23:00-24:00"),
-            "1.2" to listOf("06:00-09:00", "12:30-19:30", "22:00-24:00"),
-            "2.1" to listOf("06:00-09:00", "12:30-19:30", "22:00-24:00"),
-            "2.2" to listOf("02:00-09:00", "12:30-19:30", "22:00-23:00"),
-            "3.1" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
-            "3.2" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
-            "4.1" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
-            "4.2" to listOf("00:00-02:00", "08:00-12:30", "16:00-23:00"),
-            "5.1" to listOf("02:00-06:00", "09:00-16:00", "19:30-22:00", "23:00-24:00"),
-            "5.2" to listOf("02:00-08:00", "09:00-16:00", "19:30-22:00", "23:00-24:00"),
-            "6.1" to listOf("02:00-08:00", "09:00-16:00", "19:30-22:00", "23:00-24:00"),
-            "6.2" to listOf("00:00-08:00", "09:00-16:00", "19:30-22:00", "23:00-24:00")
+            "1.1" to listOf("02:30-06:00", "09:30-16:30", "20:00-24:00"),
+            "1.2" to listOf("00:00-06:00", "09:30-16:30", "20:00-24:00"),
+            "2.1" to listOf("02:30-06:00", "09:30-16:30", "20:00-22:00"),
+            "2.2" to listOf("02:30-06:00", "09:30-16:30", "20:00-22:00"),
+            "3.1" to listOf("02:30-09:30", "13:00-20:00"),
+            "3.2" to listOf("06:00-09:30", "13:00-20:00"),
+            "4.1" to listOf("06:00-09:30", "13:00-20:00"),
+            "4.2" to listOf("06:00-09:30", "13:00-20:00"),
+            "5.1" to listOf("00:00-02:30", "08:00-13:00", "16:30-23:30"),
+            "5.2" to listOf("00:00-02:30", "08:00-13:00", "16:30-23:30"),
+            "6.1" to listOf("00:00-02:30", "06:00-13:00", "16:30-23:30"),
+            "6.2" to listOf("00:00-02:30", "06:00-13:00", "16:30-23:30")
         )
         val cleanMap = mutableMapOf<String, List<ScheduleInterval>>()
         for ((q, listStr) in defaultKharkivIntervals) {
