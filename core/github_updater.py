@@ -3,7 +3,7 @@ import requests
 from dataclasses import dataclass
 from typing import Optional
 
-CURRENT_VERSION = "v1.4"
+CURRENT_VERSION = "v1.5"
 GITHUB_REPO = "drkoh/ElectroBot"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 

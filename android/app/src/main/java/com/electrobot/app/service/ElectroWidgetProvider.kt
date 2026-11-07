@@ -98,7 +98,7 @@ class ElectroWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.widget_queue_text, "#$cleanQueue")
             views.setTextViewText(
                 R.id.widget_bulb_icon,
-                if (status.isOutage) " 💡" else " ⚡"
+                if (status.isOutage) " 💡̸" else " 💡"
             )
 
             val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
@@ -140,8 +140,8 @@ class ElectroWidgetProvider : AppWidgetProvider() {
                     context = context,
                     schedule = schedule,
                     queueName = cleanQueue,
-                    targetWidthDp = 320,
-                    targetHeightDp = 58,
+                    targetWidthDp = 340,
+                    targetHeightDp = 72,
                     nowCal = nowCal
                 )
                 views.setImageViewBitmap(R.id.widget_timeline_image, timelineBmp)
