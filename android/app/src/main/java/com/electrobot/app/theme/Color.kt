@@ -4,63 +4,89 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 
 // =========================================================================
-// ElectroBot Mobile Design Tokens (Fluent 2 / Modern Slate)
-// Matches desktop Fluent 2 & Material Design 3 tokens
+// ElectroBot Mobile Design Tokens (Apple Human Interface Guidelines / Cupertino)
+// Pure OLED Dark Mode & Crisp iOS Light Mode Palette
 // =========================================================================
 
-// --- Dark Slate Palette (Pro Slate Charcoal) ---
-val DarkCanvas = Color(0xFF1C1E24)
-val DarkHeader = Color(0xFF21232B)
-val DarkHeaderBorder = Color(0xFF323642)
-val DarkCard = Color(0xFF262933)
-val DarkCardBorder = Color(0xFF353946)
-val DarkInput = Color(0xFF1F222B)
-val DarkInputBorder = Color(0xFF383D4A)
-val DarkInputFocus = Color(0xFF388BFD)
-val DarkTextPrimary = Color(0xFFE6EDF3)
-val DarkTextMuted = Color(0xFF9BA3B4)
-val DarkAccentPrimary = Color(0xFF1F6FEB)
-val DarkAccentPrimaryHover = Color(0xFF388BFD)
-val DarkAccentSuccess = Color(0xFF238636)
-val DarkAccentDanger = Color(0xFFDA3633)
-val DarkAccentWarning = Color(0xFFD29922)
-val DarkBadgeNeutralBg = Color(0xFF223249)
-val DarkBadgeNeutralText = Color(0xFF58A6FF)
-val DarkBadgeNeutralBorder = Color(0xFF2C4161)
-val DarkBadgeSuccessBg = Color(0xFF1C3D28)
-val DarkBadgeSuccessText = Color(0xFF3FB950)
-val DarkBadgeSuccessBorder = Color(0xFF235835)
-val DarkBadgeDangerBg = Color(0xFF3D1E22)
-val DarkBadgeDangerText = Color(0xFFF85149)
-val DarkBadgeDangerBorder = Color(0xFF5C2A30)
-val DarkActiveTabBg = Color(0xFF293448)
+// --- Apple Dark Mode Palette (Cupertino Pro) ---
+val AppleDarkCanvas = Color(0xFF000000)               // iOS System Background (True OLED Black)
+val AppleDarkHeader = Color(0xFF121214)               // Translucent Top Bar & Nav Surface
+val AppleDarkHeaderBorder = Color(0x26FFFFFF)         // Hairline 15% White
+val AppleDarkCard = Color(0xFF1C1C1E)                 // iOS Secondary System Background (Inset Grouped)
+val AppleDarkCardBorder = Color(0x2EFFFFFF)           // Crisp Hairline 18% White
+val AppleDarkInput = Color(0xFF2C2C2E)                // iOS Tertiary System Background (Recessed Fields)
+val AppleDarkInputBorder = Color(0x3DFFFFFF)          // Hairline 24% White
+val AppleDarkInputFocus = Color(0xFF0A84FF)           // Apple System Blue (Focus)
 
-// --- Light Palette (Office Light) ---
-val LightCanvas = Color(0xFFF3F4F6)
-val LightHeader = Color(0xFFFFFFFF)
-val LightHeaderBorder = Color(0xFFE5E7EB)
-val LightCard = Color(0xFFFFFFFF)
-val LightCardBorder = Color(0xFFE5E7EB)
-val LightInput = Color(0xFFFFFFFF)
-val LightInputBorder = Color(0xFFCBD5E1)
-val LightInputFocus = Color(0xFF0F6CBD)
-val LightTextPrimary = Color(0xFF0F172A)
-val LightTextMuted = Color(0xFF475569)
-val LightAccentPrimary = Color(0xFF0F6CBD)
-val LightAccentPrimaryHover = Color(0xFF115EA3)
-val LightAccentSuccess = Color(0xFF107C41)
-val LightAccentDanger = Color(0xFFD13438)
-val LightAccentWarning = Color(0xFFD97706)
-val LightBadgeNeutralBg = Color(0xFFE0EDFF)
-val LightBadgeNeutralText = Color(0xFF0F6CBD)
-val LightBadgeNeutralBorder = Color(0xFFB9D9FF)
-val LightBadgeSuccessBg = Color(0xFFDCFCE7)
-val LightBadgeSuccessText = Color(0xFF15803D)
-val LightBadgeSuccessBorder = Color(0xFFBBF7D0)
-val LightBadgeDangerBg = Color(0xFFFEE2E2)
-val LightBadgeDangerText = Color(0xFFB91C1C)
-val LightBadgeDangerBorder = Color(0xFFFECACA)
-val LightActiveTabBg = Color(0xFFE0EDFF)
+val AppleDarkTextPrimary = Color(0xFFFFFFFF)          // Primary Label
+val AppleDarkTextMuted = Color(0xFF8E8E93)            // Secondary Label (iOS System Grey)
+val AppleDarkTextTertiary = Color(0xFF636366)         // Tertiary Label
+
+val AppleDarkAccentPrimary = Color(0xFF0A84FF)        // Apple System Blue
+val AppleDarkAccentPrimaryHover = Color(0xFF409CFF)   // Apple Light Blue
+val AppleDarkAccentSuccess = Color(0xFF30D158)        // Apple System Green
+val AppleDarkAccentDanger = Color(0xFFFF453A)         // Apple System Red
+val AppleDarkAccentWarning = Color(0xFFFF9F0A)        // Apple System Orange / Amber
+val AppleDarkAccentPurple = Color(0xFFBF5AF2)         // Apple System Purple
+val AppleDarkAccentTeal = Color(0xFF64D2FF)           // Apple System Teal
+
+val AppleDarkBadgeNeutralBg = Color(0x260A84FF)       // 15% Blue fill
+val AppleDarkBadgeNeutralText = Color(0xFF0A84FF)     // Blue text
+val AppleDarkBadgeNeutralBorder = Color(0x4D0A84FF)   // 30% Blue stroke
+
+val AppleDarkBadgeSuccessBg = Color(0x2630D158)       // 15% Green fill
+val AppleDarkBadgeSuccessText = Color(0xFF30D158)     // Green text
+val AppleDarkBadgeSuccessBorder = Color(0x4D30D158)
+
+val AppleDarkBadgeDangerBg = Color(0x26FF453A)        // 15% Red fill
+val AppleDarkBadgeDangerText = Color(0xFFFF453A)      // Red text
+val AppleDarkBadgeDangerBorder = Color(0x4DFF453A)
+
+val AppleDarkBadgeWarningBg = Color(0x26FF9F0A)       // 15% Orange fill
+val AppleDarkBadgeWarningText = Color(0xFFFF9F0A)     // Orange text
+val AppleDarkBadgeWarningBorder = Color(0x4DFF9F0A)
+
+val AppleDarkActiveTabBg = Color(0x260A84FF)
+
+// --- Apple Light Mode Palette (Cupertino Clean) ---
+val AppleLightCanvas = Color(0xFFF2F2F7)              // iOS System Grouped Background
+val AppleLightHeader = Color(0xFFFFFFFF)
+val AppleLightHeaderBorder = Color(0x1F000000)        // 12% Black
+val AppleLightCard = Color(0xFFFFFFFF)                // iOS Card Surface
+val AppleLightCardBorder = Color(0x14000000)          // 8% Black Hairline
+val AppleLightInput = Color(0xFFE5E5EA)               // iOS Recessed Field
+val AppleLightInputBorder = Color(0x26000000)
+val AppleLightInputFocus = Color(0xFF007AFF)
+
+val AppleLightTextPrimary = Color(0xFF000000)
+val AppleLightTextMuted = Color(0xFF8E8E93)
+val AppleLightTextTertiary = Color(0xFFAEB2B8)
+
+val AppleLightAccentPrimary = Color(0xFF007AFF)       // Apple System Blue
+val AppleLightAccentPrimaryHover = Color(0xFF0062CC)
+val AppleLightAccentSuccess = Color(0xFF34C759)       // Apple System Green
+val AppleLightAccentDanger = Color(0xFFFF3B30)        // Apple System Red
+val AppleLightAccentWarning = Color(0xFFFF9500)       // Apple System Orange
+val AppleLightAccentPurple = Color(0xFFAF52DE)
+val AppleLightAccentTeal = Color(0xFF5AC8FA)
+
+val AppleLightBadgeNeutralBg = Color(0x1A007AFF)
+val AppleLightBadgeNeutralText = Color(0xFF007AFF)
+val AppleLightBadgeNeutralBorder = Color(0x33007AFF)
+
+val AppleLightBadgeSuccessBg = Color(0x1A34C759)
+val AppleLightBadgeSuccessText = Color(0xFF28A745)
+val AppleLightBadgeSuccessBorder = Color(0x3334C759)
+
+val AppleLightBadgeDangerBg = Color(0x1AFF3B30)
+val AppleLightBadgeDangerText = Color(0xFFE02E24)
+val AppleLightBadgeDangerBorder = Color(0x33FF3B30)
+
+val AppleLightBadgeWarningBg = Color(0x1AFF9500)
+val AppleLightBadgeWarningText = Color(0xFFD97706)
+val AppleLightBadgeWarningBorder = Color(0x33FF9500)
+
+val AppleLightActiveTabBg = Color(0x1A007AFF)
 
 val TextWhite = Color(0xFFFFFFFF)
 
@@ -77,11 +103,14 @@ data class ElectroCustomColors(
     val inputFocus: Color,
     val textPrimary: Color,
     val textMuted: Color,
+    val textTertiary: Color,
     val accentPrimary: Color,
     val accentPrimaryHover: Color,
     val accentSuccess: Color,
     val accentDanger: Color,
     val accentWarning: Color,
+    val accentPurple: Color,
+    val accentTeal: Color,
     val badgeNeutralBg: Color,
     val badgeNeutralText: Color,
     val badgeNeutralBorder: Color,
@@ -91,6 +120,9 @@ data class ElectroCustomColors(
     val badgeDangerBg: Color,
     val badgeDangerText: Color,
     val badgeDangerBorder: Color,
+    val badgeWarningBg: Color,
+    val badgeWarningText: Color,
+    val badgeWarningBorder: Color,
     val activeTabBg: Color,
     val activeTabText: Color
 )
