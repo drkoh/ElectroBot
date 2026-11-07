@@ -30,6 +30,11 @@ class MainActivity : ComponentActivity() {
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
 
+    override fun onResume() {
+        super.onResume()
+        com.electrobot.app.service.ElectroWidgetProvider.updateAllWidgets(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
