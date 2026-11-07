@@ -54,7 +54,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 // =========================================================================
-// ElectroBot Mobile (Apple Human Interface / Cupertino Edition)
+// ElectroBot Mobile (Apple Human Interface / Cupertino Edition - Fixed UX)
 // =========================================================================
 
 @Composable
@@ -91,11 +91,9 @@ fun MainScreen(
     var activeRouterIp by remember { mutableStateOf(prefs.getString("router_ip", "") ?: "") }
     var isWifiActive by remember { mutableStateOf(true) }
 
-    // Dialog state for adding/editing address
     var showAddressDialog by remember { mutableStateOf(false) }
     var targetFavoriteForEdit by remember { mutableStateOf<FavoriteAddress?>(null) }
 
-    // Favorites in State
     fun loadFavorites(): List<FavoriteAddress> {
         val jsonStr = prefs.getString("favorites_json", null)
         if (jsonStr == null) {
@@ -144,7 +142,6 @@ fun MainScreen(
 
     var favoritesList by remember { mutableStateOf(loadFavorites()) }
 
-    // Live second ticker for countdown
     var currentSecondsTicker by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -153,12 +150,10 @@ fun MainScreen(
         }
     }
 
-    // Unified Status
     val unifiedStatus = remember(activeAddress, activeQueue, schedule, outages1562, currentSecondsTicker) {
         StatusResolver.resolve(activeAddress, activeQueue, schedule, outages1562, currentSecondsTicker)
     }
 
-    // Data refresher
     fun refreshData() {
         coroutineScope.launch {
             isLoading = true
@@ -212,13 +207,59 @@ fun MainScreen(
     }
 
     Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
         containerColor = theme.canvas,
         bottomBar = {
-            CupertinoTabBar(
-                theme = theme,
-                selectedTab = selectedTab,
-                onSelectTab = { selectedTab = it }
-            )
+            // Material 3 NavigationBar with full WindowInsets protection for 3-button navigation
+            NavigationBar(
+                containerColor = theme.headerBg,
+                tonalElevation = 0.dp,
+                windowInsets = NavigationBarDefaults.windowInsets,
+                modifier = Modifier.border(
+                    width = 0.5.dp,
+                    color = theme.headerBorder
+                )
+            ) {
+                val navItems = listOf(
+                    Triple("⚡", "Розклад", 0),
+                    Triple("📍", "Адреси", 1),
+                    Triple("🔍", "Пошук", 2),
+                    Triple("🚨", "1562", 3),
+                    Triple("⚙️", "Опції", 4)
+                )
+
+                navItems.forEach { (icon, label, idx) ->
+                    val isSelected = selectedTab == idx
+                    val itemActiveColor = if (idx == 3 && isSelected) theme.accentDanger else theme.accentPrimary
+
+                    NavigationBarItem(
+                        selected = isSelected,
+                        onClick = { selectedTab = idx },
+                        icon = {
+                            Text(
+                                text = icon,
+                                fontSize = if (isSelected) 22.sp else 19.sp
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = itemActiveColor,
+                            selectedTextColor = itemActiveColor,
+                            unselectedIconColor = theme.textMuted,
+                            unselectedTextColor = theme.textMuted,
+                            indicatorColor = theme.activeTabBg
+                        )
+                    )
+                }
+            }
         }
     ) { innerPadding ->
         Box(
@@ -229,6 +270,8 @@ fun MainScreen(
             when (selectedTab) {
                 0 -> ScheduleTab(
                     theme = theme,
+                    isDarkTheme = isDarkTheme,
+                    onToggleTheme = onToggleTheme,
                     activeQueue = activeQueue,
                     activeAddress = activeAddress,
                     unifiedStatus = unifiedStatus,
@@ -388,80 +431,13 @@ fun MainScreen(
 }
 
 // -----------------------------------------------------------------------------
-// APPLE CUPERTINO TAB BAR
-// -----------------------------------------------------------------------------
-@Composable
-fun CupertinoTabBar(
-    theme: ElectroCustomColors,
-    selectedTab: Int,
-    onSelectTab: (Int) -> Unit
-) {
-    val tabs = listOf(
-        Triple("⚡", "Розклад", 0),
-        Triple("📍", "Адреси", 1),
-        Triple("🔍", "Пошук", 2),
-        Triple("🚨", "1562", 3),
-        Triple("⚙️", "Опції", 4)
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(theme.headerBg)
-    ) {
-        // Cupertino hairline top border
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(0.5.dp)
-                .background(theme.headerBorder)
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            tabs.forEach { (icon, title, index) ->
-                val isSelected = selectedTab == index
-                val activeColor = if (index == 3 && isSelected) theme.accentDanger else theme.accentPrimary
-
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { onSelectTab(index) }
-                        .padding(vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = icon,
-                        fontSize = 19.sp
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = title,
-                        fontSize = 10.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                        color = if (isSelected) activeColor else theme.textMuted
-                    )
-                }
-            }
-        }
-    }
-}
-
-// -----------------------------------------------------------------------------
 // TAB 0: SCHEDULE & HERO (Apple Human Interface)
 // -----------------------------------------------------------------------------
 @Composable
 fun ScheduleTab(
     theme: ElectroCustomColors,
+    isDarkTheme: Boolean,
+    onToggleTheme: () -> Unit,
     activeQueue: String,
     activeAddress: String,
     unifiedStatus: UnifiedStatus,
@@ -481,10 +457,10 @@ fun ScheduleTab(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Cupertino Header Bar
+        // Cupertino Top Header Bar
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -505,7 +481,20 @@ fun ScheduleTab(
                 )
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Quick Theme Switch Button (☀️ / 🌙)
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(theme.inputBg)
+                        .border(0.5.dp, theme.cardBorder, CircleShape)
+                        .clickable { onToggleTheme() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(if (isDarkTheme) "🌙" else "☀️", fontSize = 15.sp)
+                }
+
                 // Wi-Fi / Router Status Pill
                 if (!isWifiActive) {
                     Box(
@@ -516,13 +505,13 @@ fun ScheduleTab(
                             .clickable {
                                 Toast.makeText(context, "📱 Мобільна мережа. Роутер пінгується через домашній Wi-Fi.", Toast.LENGTH_LONG).show()
                             }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Text(
                             text = "📱 LTE",
                             color = theme.badgeNeutralText,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 } else if (isRouterOnline != null) {
@@ -531,28 +520,28 @@ fun ScheduleTab(
                             .clip(RoundedCornerShape(999.dp))
                             .background(if (isRouterOnline) theme.badgeSuccessBg else theme.badgeDangerBg)
                             .border(0.5.dp, if (isRouterOnline) theme.badgeSuccessBorder else theme.badgeDangerBorder, RoundedCornerShape(999.dp))
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Text(
                             text = if (isRouterOnline) "🟢 Wi-Fi" else "🔴 Офлайн",
                             color = if (isRouterOnline) theme.badgeSuccessText else theme.badgeDangerText,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                // Apple-style Frosted Refresh Button
+                // Apple Refresh Button
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .background(theme.inputBg)
                         .border(0.5.dp, theme.cardBorder, CircleShape)
                         .clickable { onRefresh() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(if (isLoading) "⏳" else "🔄", fontSize = 14.sp)
+                    Text(if (isLoading) "⏳" else "🔄", fontSize = 15.sp)
                 }
             }
         }
@@ -563,7 +552,7 @@ fun ScheduleTab(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
                 .background(theme.cardBg)
-                .border(0.5.dp, theme.cardBorder, RoundedCornerShape(16.dp))
+                .border(1.dp, theme.cardBorder, RoundedCornerShape(16.dp))
                 .clickable { onEditAddress() }
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -572,12 +561,12 @@ fun ScheduleTab(
             Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
                         .background(theme.badgeNeutralBg),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("📍", fontSize = 16.sp)
+                    Text("📍", fontSize = 18.sp)
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
@@ -585,7 +574,7 @@ fun ScheduleTab(
                         text = "АКТИВНА АДРЕСА",
                         color = theme.textMuted,
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         letterSpacing = 0.5.sp
                     )
                     Text(
@@ -602,8 +591,8 @@ fun ScheduleTab(
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
                         .background(theme.badgeNeutralBg)
-                        .border(0.5.dp, theme.badgeNeutralBorder, RoundedCornerShape(999.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .border(1.dp, theme.badgeNeutralBorder, RoundedCornerShape(999.dp))
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Text(
                         text = "Черга $activeQueue",
@@ -613,7 +602,7 @@ fun ScheduleTab(
                     )
                 }
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("›", color = theme.textMuted, fontSize = 20.sp, fontWeight = FontWeight.Light)
+                Text("›", color = theme.textMuted, fontSize = 22.sp, fontWeight = FontWeight.Light)
             }
         }
 
@@ -640,9 +629,9 @@ fun ScheduleTab(
                 .clip(RoundedCornerShape(22.dp))
                 .background(theme.cardBg)
                 .border(
-                    0.5.dp,
-                    if (isOutage) theme.accentDanger.copy(alpha = 0.6f) else theme.cardBorder,
-                    RoundedCornerShape(22.dp)
+                    width = if (isOutage) 1.5.dp else 1.dp,
+                    color = if (isOutage) theme.accentDanger else theme.cardBorder,
+                    shape = RoundedCornerShape(22.dp)
                 )
                 .padding(18.dp)
         ) {
@@ -653,39 +642,37 @@ fun ScheduleTab(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Top
                 ) {
-                    // Left Column: #Queue Bulb + Time
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "#$activeQueue",
                                 color = theme.textPrimary,
-                                fontSize = 18.sp,
+                                fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(bulbIcon, fontSize = 18.sp)
+                            Text(bulbIcon, fontSize = 20.sp)
                         }
                         Text(
                             text = "Станом на $timeLabel",
                             color = theme.accentWarning,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
 
-                    // Right Column: State + Target
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
                             text = statusMainText,
                             color = if (isOutage) theme.accentDanger else theme.accentSuccess,
-                            fontSize = 18.sp,
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = statusTargetSubtext,
                             color = theme.accentWarning,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
@@ -703,7 +690,8 @@ fun ScheduleTab(
                     Text(
                         text = unifiedStatus.headline,
                         color = theme.textMuted,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
@@ -723,13 +711,14 @@ fun ScheduleTab(
                             text = "ДОБОВИЙ ОГЛЯД 24 ГОДИНИ",
                             color = theme.textMuted,
                             fontSize = 9.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                             letterSpacing = 0.5.sp
                         )
                         Text(
                             text = "🟩 Світло є  🟥 Відключено",
                             color = theme.textMuted,
-                            fontSize = 9.sp
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                     TimelineGraphicBar(theme = theme, intervals = intervals, compact = true)
@@ -739,9 +728,9 @@ fun ScheduleTab(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(theme.inputBg)
-                        .border(0.5.dp, theme.accentPrimary.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                        .border(1.dp, theme.accentPrimary.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
                         .padding(12.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -756,7 +745,7 @@ fun ScheduleTab(
                                 text = unifiedStatus.chargeWindowAdvice,
                                 color = theme.textPrimary,
                                 fontSize = 11.sp,
-                                lineHeight = 15.sp
+                                lineHeight = 16.sp
                             )
                         }
                     }
@@ -783,17 +772,17 @@ fun ScheduleTab(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = theme.cardBg),
-            border = androidx.compose.foundation.BorderStroke(0.5.dp, theme.cardBorder),
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder),
             contentPadding = PaddingValues(vertical = 12.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("📤", fontSize = 15.sp)
+                Text("📤", fontSize = 16.sp)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "Поділитися графіком (Telegram / Viber)",
                     color = theme.accentPrimary,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -802,6 +791,7 @@ fun ScheduleTab(
 
 // -----------------------------------------------------------------------------
 // APPLE LIVE 6.5-HOUR TIMELINE RULER (Compose Native Canvas)
+// High-contrast, no white text on light backgrounds!
 // -----------------------------------------------------------------------------
 @Composable
 fun AppleLiveTimelineRuler(
@@ -815,13 +805,9 @@ fun AppleLiveTimelineRuler(
             .fillMaxWidth()
             .height(76.dp)
     ) {
-        val totalWidthDp = maxWidth
-        val totalWidthPx = with(density) { totalWidthDp.toPx() }
-
         val cal = Calendar.getInstance()
         val curMinute = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
 
-        // 6.5 hours rolling window
         val windowDurationMin = 390f
         val windowStartMin = (curMinute - 60f).coerceAtLeast(0f)
         val windowEndMin = windowStartMin + windowDurationMin
@@ -839,15 +825,15 @@ fun AppleLiveTimelineRuler(
                 return ((m - windowStartMin) / windowDurationMin) * canvasWidth
             }
 
-            // 1. Draw Baseline Ruler Line
+            // 1. Baseline Ruler Line
             drawLine(
-                color = theme.cardBorder,
+                color = if (theme.isDark) Color(0x66FFFFFF) else Color(0xFFC7C7CC),
                 start = Offset(0f, baselineY),
                 end = Offset(canvasWidth, baselineY),
                 strokeWidth = 1.dp.toPx()
             )
 
-            // 2. Draw Outage Interval Amber Boxes
+            // 2. Outage Amber Boxes
             for (inv in intervals) {
                 val invStart = inv.startMinute.toFloat()
                 val invEnd = inv.endMinute.toFloat()
@@ -860,35 +846,39 @@ fun AppleLiveTimelineRuler(
                     val x2 = minToX(clampedEnd)
                     val boxW = maxOf(x2 - x1, 4f)
 
-                    // Draw amber fill
+                    // Fill color: warm amber in dark mode, solid pastel amber in light mode
+                    val fillColor = if (theme.isDark) Color(0x3DFF9F0A) else Color(0xFFFEF3C7)
+                    val strokeColor = if (theme.isDark) Color(0xFFFF9F0A) else Color(0xFFD97706)
+
                     drawRoundRect(
-                        color = Color(0x33FF9F0A),
+                        color = fillColor,
                         topLeft = Offset(x1, boxTop),
                         size = Size(boxW, boxHeight),
                         cornerRadius = CornerRadius(boxRadius, boxRadius)
                     )
 
-                    // Draw amber stroke
                     drawRoundRect(
-                        color = Color(0xFFFF9F0A),
+                        color = strokeColor,
                         topLeft = Offset(x1, boxTop),
                         size = Size(boxW, boxHeight),
                         cornerRadius = CornerRadius(boxRadius, boxRadius),
-                        style = Stroke(width = 1.2.dp.toPx())
+                        style = Stroke(width = 1.5.dp.toPx())
                     )
 
-                    // Draw text inside if wide enough
+                    // Text inside box: WHITE in dark mode, DARK AMBER in light mode!
                     if (boxW > 45.dp.toPx()) {
                         val durationHours = (inv.endMinute - inv.startMinute) / 60.0
                         val text = "💡 %.1f год".format(Locale.US, durationHours).replace(".0", "")
+                        val textColorHex = if (theme.isDark) "#FFFFFF" else "#92400E"
+
                         val paint = android.graphics.Paint().apply {
-                            color = android.graphics.Color.WHITE
-                            textSize = with(density) { 9.sp.toPx() }
+                            color = android.graphics.Color.parseColor(textColorHex)
+                            textSize = with(density) { 10.sp.toPx() }
                             isFakeBoldText = true
                             isAntiAlias = true
                             textAlign = android.graphics.Paint.Align.CENTER
                         }
-                        val textY = boxTop + boxHeight / 2f + with(density) { 3.dp.toPx() }
+                        val textY = boxTop + boxHeight / 2f + with(density) { 3.5.dp.toPx() }
                         drawContext.canvas.nativeCanvas.drawText(
                             text,
                             x1 + boxW / 2f,
@@ -899,27 +889,27 @@ fun AppleLiveTimelineRuler(
                 }
             }
 
-            // 3. Draw Hour and 30-min Ticks & Labels
+            // 3. Hour and 30-min Ticks & Labels
             val startHour = (windowStartMin / 60).toInt()
             val endHour = (windowEndMin / 60).toInt() + 1
 
             for (h in startHour..endHour) {
-                // Hour tick
                 val hourMin = (h * 60).toFloat()
                 if (hourMin in windowStartMin..windowEndMin) {
                     val tx = minToX(hourMin)
                     drawLine(
-                        color = theme.textMuted,
+                        color = if (theme.isDark) Color(0xFFAAAAAA) else Color(0xFF48484A),
                         start = Offset(tx, baselineY),
                         end = Offset(tx, baselineY + 6.dp.toPx()),
-                        strokeWidth = 1.dp.toPx()
+                        strokeWidth = 1.2.dp.toPx()
                     )
 
-                    // Hour label text (09:00, 10:00...)
                     val label = String.format(Locale.US, "%02d:00", h % 24)
+                    val labelColorHex = if (theme.isDark) "#E0E0E0" else "#1F2937"
                     val textPaint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.parseColor(if (theme.isDark) "#8E8E93" else "#636366")
-                        textSize = with(density) { 9.sp.toPx() }
+                        color = android.graphics.Color.parseColor(labelColorHex)
+                        textSize = with(density) { 9.5.sp.toPx() }
+                        isFakeBoldText = true
                         isAntiAlias = true
                         textAlign = android.graphics.Paint.Align.CENTER
                     }
@@ -931,12 +921,11 @@ fun AppleLiveTimelineRuler(
                     )
                 }
 
-                // 30-min half tick
                 val halfMin = hourMin + 30f
                 if (halfMin in windowStartMin..windowEndMin) {
                     val hx = minToX(halfMin)
                     drawLine(
-                        color = theme.cardBorder,
+                        color = if (theme.isDark) Color(0x66FFFFFF) else Color(0xFFC7C7CC),
                         start = Offset(hx, baselineY),
                         end = Offset(hx, baselineY + 3.5.dp.toPx()),
                         strokeWidth = 0.8.dp.toPx()
@@ -944,20 +933,18 @@ fun AppleLiveTimelineRuler(
                 }
             }
 
-            // 4. Current Time Needle Indicator
+            // 4. Current Time Needle Cursor
             val needleX = minToX(curMinute.toFloat())
             if (needleX in 0f..canvasWidth) {
-                // Red vertical cursor line
                 drawLine(
-                    color = Color(0xFFFF453A),
+                    color = Color(0xFFFF3B30),
                     start = Offset(needleX, 0f),
                     end = Offset(needleX, canvasHeight - 12.dp.toPx()),
                     strokeWidth = 2.dp.toPx()
                 )
 
-                // Top Pin Circle
                 drawCircle(
-                    color = Color(0xFFFF453A),
+                    color = Color(0xFFFF3B30),
                     radius = 3.5.dp.toPx(),
                     center = Offset(needleX, baselineY)
                 )
@@ -967,7 +954,7 @@ fun AppleLiveTimelineRuler(
 }
 
 // -----------------------------------------------------------------------------
-// 24-HOUR SEGMENTED TIMELINE BAR
+// 24-HOUR SEGMENTED TIMELINE BAR (High-contrast solid colors)
 // -----------------------------------------------------------------------------
 @Composable
 fun TimelineGraphicBar(
@@ -982,24 +969,25 @@ fun TimelineGraphicBar(
     val curFraction = curMinute.toFloat() / 1440f
     val barHeight = if (compact) 12.dp else 24.dp
 
+    val trackBgColor = if (theme.isDark) Color(0xFF163E23) else Color(0xFF86EFAC)
+    val trackBorderColor = if (theme.isDark) Color(0xFF238636) else Color(0xFF22C55E)
+    val outageBgColor = if (theme.isDark) Color(0xFF8B1D22) else Color(0xFFEF4444)
+
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxWidth()
+            modifier = Modifier.fillMaxWidth()
         ) {
             val totalWidth = maxWidth
             val needleX = totalWidth * curFraction
 
-            // Green power-on track container
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(barHeight)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(theme.badgeSuccessBg)
-                    .border(0.5.dp, theme.badgeSuccessBorder, RoundedCornerShape(999.dp))
+                    .background(trackBgColor)
+                    .border(1.dp, trackBorderColor, RoundedCornerShape(999.dp))
             ) {
-                // Outage red segments
                 for (inv in intervals) {
                     val startRatio = inv.startMinute.toFloat() / 1440f
                     val endRatio = inv.endMinute.toFloat() / 1440f
@@ -1010,12 +998,12 @@ fun TimelineGraphicBar(
                             .offset(x = totalWidth * startRatio)
                             .width(segWidth.dp)
                             .fillMaxHeight()
-                            .background(theme.badgeDangerBg)
+                            .background(outageBgColor)
                     )
                 }
             }
 
-            // Subtle vertical needle
+            // Needle indicator
             Box(
                 modifier = Modifier
                     .offset(x = needleX - 1.dp)
@@ -1025,16 +1013,15 @@ fun TimelineGraphicBar(
             )
         }
 
-        // Timeline hours (00, 06, 12, 18, 24)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("00:00", color = theme.textMuted, fontSize = 8.sp)
-            Text("06:00", color = theme.textMuted, fontSize = 8.sp)
-            Text("12:00", color = theme.textMuted, fontSize = 8.sp)
-            Text("18:00", color = theme.textMuted, fontSize = 8.sp)
-            Text("24:00", color = theme.textMuted, fontSize = 8.sp)
+            Text("00:00", color = theme.textMuted, fontSize = 8.sp, fontWeight = FontWeight.SemiBold)
+            Text("06:00", color = theme.textMuted, fontSize = 8.sp, fontWeight = FontWeight.SemiBold)
+            Text("12:00", color = theme.textMuted, fontSize = 8.sp, fontWeight = FontWeight.SemiBold)
+            Text("18:00", color = theme.textMuted, fontSize = 8.sp, fontWeight = FontWeight.SemiBold)
+            Text("24:00", color = theme.textMuted, fontSize = 8.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -1090,14 +1077,13 @@ fun MyAddressesTab(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Section Title
         item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = "МОЇ ЗБЕРЕЖЕНІ АДРЕСИ (${favorites.size})",
                     color = theme.textMuted,
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
                 )
                 Text(
@@ -1108,7 +1094,6 @@ fun MyAddressesTab(
             }
         }
 
-        // Emergency GAV Banner if applicable
         if (schedule?.isEmergency == true) {
             item {
                 Box(
@@ -1116,7 +1101,7 @@ fun MyAddressesTab(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
                         .background(theme.badgeDangerBg)
-                        .border(0.5.dp, theme.badgeDangerBorder, RoundedCornerShape(14.dp))
+                        .border(1.dp, theme.badgeDangerBorder, RoundedCornerShape(14.dp))
                         .padding(12.dp)
                 ) {
                     Text(
@@ -1129,7 +1114,6 @@ fun MyAddressesTab(
             }
         }
 
-        // User's Saved Address Cards
         items(favorites) { fav ->
             val isCurrent = (fav.address == activeAddress || (fav.queue == activeQueue && fav.address.contains("Дудинськ")))
             val status = StatusResolver.resolve(fav.address, fav.queue, schedule, outages1562, currentSecondsTicker)
@@ -1142,14 +1126,13 @@ fun MyAddressesTab(
                     .clip(RoundedCornerShape(18.dp))
                     .background(theme.cardBg)
                     .border(
-                        0.5.dp,
-                        if (isCurrent) theme.accentPrimary else theme.cardBorder,
-                        RoundedCornerShape(18.dp)
+                        width = if (isCurrent) 1.5.dp else 1.dp,
+                        color = if (isCurrent) theme.accentPrimary else theme.cardBorder,
+                        shape = RoundedCornerShape(18.dp)
                     )
                     .padding(16.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // Header row: Title + Queue Badge + Active Pill / Select
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1183,7 +1166,7 @@ fun MyAddressesTab(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(theme.badgeSuccessBg)
-                                    .border(0.5.dp, theme.badgeSuccessBorder, RoundedCornerShape(999.dp))
+                                    .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(999.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(
@@ -1200,25 +1183,23 @@ fun MyAddressesTab(
                                 colors = ButtonDefaults.buttonColors(containerColor = theme.accentPrimary),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                             ) {
-                                Text("Обрати", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Обрати", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
 
-                    // Address line
                     Text(
                         text = "📍 ${fav.address}",
                         color = theme.textMuted,
                         fontSize = 13.sp
                     )
 
-                    // Current Live Status Box
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (status.isOutage) theme.badgeDangerBg else theme.badgeSuccessBg)
-                            .border(0.5.dp, if (status.isOutage) theme.badgeDangerBorder else theme.badgeSuccessBorder, RoundedCornerShape(12.dp))
+                            .border(1.dp, if (status.isOutage) theme.badgeDangerBorder else theme.badgeSuccessBorder, RoundedCornerShape(12.dp))
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Row(
@@ -1253,12 +1234,9 @@ fun MyAddressesTab(
                         }
                     }
 
-                    // 24h Mini Timeline
                     TimelineGraphicBar(theme = theme, intervals = outageInvs, compact = true)
 
-                    // OFF vs ON pills
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        // OFF
                         if (outageInvs.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
@@ -1271,21 +1249,20 @@ fun MyAddressesTab(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(999.dp))
                                             .background(theme.badgeDangerBg)
-                                            .border(0.5.dp, theme.badgeDangerBorder, RoundedCornerShape(999.dp))
+                                            .border(1.dp, theme.badgeDangerBorder, RoundedCornerShape(999.dp))
                                             .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {
                                         Text(
                                             text = "🔴 ${inv.startStr} - ${inv.endStr}",
                                             color = theme.badgeDangerText,
                                             fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
                             }
                         }
 
-                        // ON
                         if (powerOnInvs.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
@@ -1298,14 +1275,14 @@ fun MyAddressesTab(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(999.dp))
                                             .background(theme.badgeSuccessBg)
-                                            .border(0.5.dp, theme.badgeSuccessBorder, RoundedCornerShape(999.dp))
+                                            .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(999.dp))
                                             .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {
                                         Text(
                                             text = "🟢 ${inv.startStr} - ${inv.endStr}",
                                             color = theme.badgeSuccessText,
                                             fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
@@ -1313,7 +1290,6 @@ fun MyAddressesTab(
                         }
                     }
 
-                    // Actions
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
@@ -1341,7 +1317,6 @@ fun MyAddressesTab(
             }
         }
 
-        // Add New Address Button
         item {
             Button(
                 onClick = onAddAddress,
@@ -1354,14 +1329,13 @@ fun MyAddressesTab(
             }
         }
 
-        // All 12 Queues Accordion
         item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
                     .background(theme.cardBg)
-                    .border(0.5.dp, theme.cardBorder, RoundedCornerShape(16.dp))
+                    .border(1.dp, theme.cardBorder, RoundedCornerShape(16.dp))
                     .clickable { showAllQueuesAccordion = !showAllQueuesAccordion }
                     .padding(14.dp)
             ) {
@@ -1403,9 +1377,9 @@ fun MyAddressesTab(
                         .clip(RoundedCornerShape(12.dp))
                         .background(theme.cardBg)
                         .border(
-                            0.5.dp,
-                            if (isCurrent) theme.accentPrimary else theme.cardBorder,
-                            RoundedCornerShape(12.dp)
+                            width = if (isCurrent) 1.5.dp else 1.dp,
+                            color = if (isCurrent) theme.accentPrimary else theme.cardBorder,
+                            shape = RoundedCornerShape(12.dp)
                         )
                         .padding(12.dp)
                 ) {
@@ -1496,12 +1470,11 @@ fun SearchTab(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Section Header
         Text(
             text = "ШВИДКИЙ ВИБІР З ОБРАНИХ",
             color = theme.textMuted,
             fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp
         )
 
@@ -1514,7 +1487,7 @@ fun SearchTab(
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
                         .background(theme.cardBg)
-                        .border(0.5.dp, theme.cardBorder, RoundedCornerShape(999.dp))
+                        .border(1.dp, theme.cardBorder, RoundedCornerShape(999.dp))
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1547,11 +1520,10 @@ fun SearchTab(
             text = "ПОШУК ВУЛИЦІ (ХАРКІВ)",
             color = theme.textMuted,
             fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp
         )
 
-        // Apple Search Bar
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
@@ -1576,7 +1548,7 @@ fun SearchTab(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .background(theme.badgeDangerBg)
-                    .border(0.5.dp, theme.badgeDangerBorder, RoundedCornerShape(14.dp))
+                    .border(1.dp, theme.badgeDangerBorder, RoundedCornerShape(14.dp))
                     .padding(12.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -1613,7 +1585,7 @@ fun SearchTab(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
                         .background(theme.cardBg)
-                        .border(0.5.dp, theme.cardBorder, RoundedCornerShape(14.dp))
+                        .border(1.dp, theme.cardBorder, RoundedCornerShape(14.dp))
                         .padding(12.dp)
                 ) {
                     Row(
@@ -1783,7 +1755,6 @@ fun Emergencies1562Tab(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1811,7 +1782,7 @@ fun Emergencies1562Tab(
                     },
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = theme.cardBg),
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, theme.accentPrimary),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.accentPrimary),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text("🤖 Бот", color = theme.accentPrimary, fontSize = 11.sp)
@@ -1821,7 +1792,7 @@ fun Emergencies1562Tab(
                     onClick = onRefresh,
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = theme.cardBg),
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, theme.cardBorder),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(if (isLoading) "⏳" else "🔄", color = theme.textPrimary, fontSize = 11.sp)
@@ -1829,7 +1800,6 @@ fun Emergencies1562Tab(
             }
         }
 
-        // Apple Segmented Control Pills
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1859,7 +1829,6 @@ fun Emergencies1562Tab(
             )
         }
 
-        // Search Input
         OutlinedTextField(
             value = filterText,
             onValueChange = {
@@ -1880,7 +1849,6 @@ fun Emergencies1562Tab(
             )
         )
 
-        // Diagnostic Feedback Card
         if (hasFilter) {
             if (exactMatches.isNotEmpty()) {
                 val first = exactMatches.first()
@@ -1889,7 +1857,7 @@ fun Emergencies1562Tab(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
                         .background(theme.badgeDangerBg)
-                        .border(0.5.dp, theme.badgeDangerBorder, RoundedCornerShape(14.dp))
+                        .border(1.dp, theme.badgeDangerBorder, RoundedCornerShape(14.dp))
                         .padding(12.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1913,7 +1881,7 @@ fun Emergencies1562Tab(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
                         .background(theme.badgeSuccessBg)
-                        .border(0.5.dp, theme.badgeSuccessBorder, RoundedCornerShape(14.dp))
+                        .border(1.dp, theme.badgeSuccessBorder, RoundedCornerShape(14.dp))
                         .padding(12.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1933,7 +1901,6 @@ fun Emergencies1562Tab(
             }
         }
 
-        // List
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1974,7 +1941,7 @@ fun Emergencies1562Tab(
                         text = "🏙️ ІНШІ РОБОТИ ПО МІСТУ (${otherCityList.size}):",
                         color = theme.textMuted,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         letterSpacing = 0.5.sp
                     )
                 }
@@ -2022,7 +1989,7 @@ fun Outage1562AppleCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(theme.cardBg)
-            .border(0.5.dp, theme.cardBorder, RoundedCornerShape(14.dp))
+            .border(1.dp, theme.cardBorder, RoundedCornerShape(14.dp))
             .padding(12.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -2063,7 +2030,8 @@ fun Outage1562AppleCard(
             Text(
                 text = "Служба: ${out.service}",
                 color = theme.accentPrimary,
-                fontSize = 10.sp
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
     }
@@ -2116,12 +2084,11 @@ fun SettingsTab(
             letterSpacing = (-0.5).sp
         )
 
-        // Group 1: General
         Text(
             text = "ЗАГАЛЬНІ",
             color = theme.textMuted,
             fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp
         )
 
@@ -2130,7 +2097,7 @@ fun SettingsTab(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
                 .background(theme.cardBg)
-                .border(0.5.dp, theme.cardBorder, RoundedCornerShape(16.dp))
+                .border(1.dp, theme.cardBorder, RoundedCornerShape(16.dp))
                 .padding(14.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2157,7 +2124,7 @@ fun SettingsTab(
                     onClick = onEditAddress,
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = theme.inputBg),
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, theme.cardBorder)
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
                 ) {
                     Text("✏️ Змінити адресу або чергу", color = theme.textPrimary, fontSize = 12.sp)
                 }
@@ -2169,7 +2136,7 @@ fun SettingsTab(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Темна тема (Cupertino Dark)", color = theme.textPrimary, fontSize = 13.sp)
+                    Text("🌙 Темна тема (Cupertino OLED)", color = theme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Switch(
                         checked = isDarkTheme,
                         onCheckedChange = { onToggleTheme() }
@@ -2178,12 +2145,11 @@ fun SettingsTab(
             }
         }
 
-        // Group 2: Notifications
         Text(
             text = "СПОДІВАННЯ ТА БУДИЛЬНИКИ",
             color = theme.textMuted,
             fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp
         )
 
@@ -2192,7 +2158,7 @@ fun SettingsTab(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
                 .background(theme.cardBg)
-                .border(0.5.dp, theme.cardBorder, RoundedCornerShape(16.dp))
+                .border(1.dp, theme.cardBorder, RoundedCornerShape(16.dp))
                 .padding(14.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2227,7 +2193,7 @@ fun SettingsTab(
                                     .weight(1f)
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(if (isSelected) theme.accentPrimary else theme.inputBg)
-                                    .border(0.5.dp, if (isSelected) theme.accentPrimary else theme.cardBorder, RoundedCornerShape(999.dp))
+                                    .border(1.dp, if (isSelected) theme.accentPrimary else theme.cardBorder, RoundedCornerShape(999.dp))
                                     .clickable {
                                         minutesBefore = mins
                                         OutageNotificationScheduler.setMinutesBefore(context, mins)
@@ -2270,19 +2236,18 @@ fun SettingsTab(
                     },
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = theme.inputBg),
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, theme.cardBorder)
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
                 ) {
                     Text("🔔 Надіслати тест", color = theme.textPrimary, fontSize = 11.sp)
                 }
             }
         }
 
-        // Group 3: GitHub Updates
         Text(
             text = "ОНОВЛЕННЯ ТА ВЕРСІЯ",
             color = theme.textMuted,
             fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp
         )
 
@@ -2291,7 +2256,7 @@ fun SettingsTab(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
                 .background(theme.cardBg)
-                .border(0.5.dp, theme.cardBorder, RoundedCornerShape(16.dp))
+                .border(1.dp, theme.cardBorder, RoundedCornerShape(16.dp))
                 .padding(14.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2375,7 +2340,7 @@ fun SettingsTab(
                         },
                         shape = RoundedCornerShape(999.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = theme.inputBg),
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, theme.cardBorder)
+                        border = androidx.compose.foundation.BorderStroke(1.dp, theme.cardBorder)
                     ) {
                         Text(if (isCheckingUpdate) "⏳ Перевірка..." else "🔄 Перевірити оновлення", color = theme.textPrimary, fontSize = 11.sp)
                     }
@@ -2395,7 +2360,7 @@ fun SettingsTab(
 }
 
 // -----------------------------------------------------------------------------
-// ADD / EDIT ADDRESS DIALOG (Apple Cupertino Action Sheet / Modal)
+// ADD / EDIT ADDRESS DIALOG
 // -----------------------------------------------------------------------------
 @Composable
 fun AddEditAddressDialog(
@@ -2476,9 +2441,9 @@ fun AddEditAddressDialog(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(if (isSel) theme.accentPrimary else theme.inputBg)
-                                .border(0.5.dp, if (isSel) theme.accentPrimary else theme.cardBorder, RoundedCornerShape(999.dp))
-                            .clickable { queueText = q }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .border(1.dp, if (isSel) theme.accentPrimary else theme.cardBorder, RoundedCornerShape(999.dp))
+                                .clickable { queueText = q }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 text = q,
